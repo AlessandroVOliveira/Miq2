@@ -27,6 +27,8 @@ import RepositoryPage from './pages/Repository';
 import BackupPage from './pages/Backup';
 import TemplatesPage from './pages/Templates';
 import ChatConfigPage from './pages/ChatConfig';
+import ChatPage from './pages/Chat';
+import PowerBIPage from './pages/PowerBI';
 
 // Protected route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -90,6 +92,8 @@ const AppRoutes: React.FC = () => {
         <Route path="backup" element={<BackupPage />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="chat-config" element={<ChatConfigPage />} />
+        <Route path="chat" element={<ChatPage />} />
+        <Route path="powerbi" element={<PowerBIPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

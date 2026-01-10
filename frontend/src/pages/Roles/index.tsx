@@ -34,6 +34,9 @@ const moduleLabels: Record<string, string> = {
     dashboard: '📊 Dashboard',
     backup: '💾 Backup',
     templates: '📄 Templates',
+    chat: '💬 Chat/Atendimento',
+    'chat-config': '📱 Config WhatsApp',
+    powerbi: '📈 Power BI',
 };
 
 // Action names in Portuguese

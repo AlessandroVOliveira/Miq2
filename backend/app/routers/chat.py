@@ -844,6 +844,20 @@ async def create_classification(
     return classification
 
 
+@router.delete("/classifications/{classification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_classification(
+    classification_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("chat", "delete"))
+):
+    """Delete chat classification (soft delete)."""
+    classification = db.query(ChatClassification).filter(ChatClassification.id == classification_id).first()
+    if not classification:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Classification not found")
+    classification.is_active = False
+    db.commit()
+
+
 # ==================== Chatbot Config ====================
 
 @router.get("/chatbot/config", response_model=ChatbotConfigResponse)

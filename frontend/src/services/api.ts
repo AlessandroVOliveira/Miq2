@@ -1023,6 +1023,10 @@ export const chatApi = {
         return response.data;
     },
 
+    deleteClassification: async (id: string): Promise<void> => {
+        await api.delete(`/chat/classifications/${id}`);
+    },
+
     // Chatbot Config
     getChatbotConfig: async (): Promise<ChatbotConfig> => {
         const response = await api.get('/chat/chatbot/config');

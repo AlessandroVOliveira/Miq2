@@ -9,9 +9,9 @@ import {
 import {
     QrcodeOutlined, WifiOutlined, DisconnectOutlined, ReloadOutlined,
     MessageOutlined, SettingOutlined, CheckCircleOutlined, CloseCircleOutlined,
-    LoadingOutlined, PhoneOutlined, DeleteOutlined
+    LoadingOutlined, PhoneOutlined, DeleteOutlined, TagsOutlined, EditOutlined, PlusOutlined
 } from '@ant-design/icons';
-import { chatApi, ChatConfig, QRCodeResponse, ChatbotConfig } from '../../services/api';
+import { chatApi, ChatConfig, QRCodeResponse, ChatbotConfig, ChatClassification, QuickReply } from '../../services/api';
 import { teamsApi } from '../../services/api';
 import type { Team } from '../../types';
 
@@ -29,9 +29,18 @@ const ChatConfigPage: React.FC = () => {
     const [teams, setTeams] = useState<Team[]>([]);
     const [chatbotConfig, setChatbotConfig] = useState<ChatbotConfig | null>(null);
     const [savingChatbot, setSavingChatbot] = useState(false);
+    // Classifications state
+    const [classifications, setClassifications] = useState<ChatClassification[]>([]);
+    const [newClassificationName, setNewClassificationName] = useState('');
+    const [savingClassification, setSavingClassification] = useState(false);
+    // Quick replies state
+    const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
+    const [quickReplyModalOpen, setQuickReplyModalOpen] = useState(false);
+    const [editingQuickReply, setEditingQuickReply] = useState<QuickReply | null>(null);
 
     const [form] = Form.useForm();
     const [chatbotForm] = Form.useForm();
+    const [quickReplyForm] = Form.useForm();
 
     // Fetch configuration
     const fetchConfig = useCallback(async () => {
@@ -82,11 +91,33 @@ const ChatConfigPage: React.FC = () => {
         }
     }, [chatbotForm]);
 
+    // Fetch classifications
+    const fetchClassifications = useCallback(async () => {
+        try {
+            const data = await chatApi.listClassifications();
+            setClassifications(data);
+        } catch {
+            // Ignore
+        }
+    }, []);
+
+    // Fetch quick replies
+    const fetchQuickReplies = useCallback(async () => {
+        try {
+            const data = await chatApi.listQuickReplies();
+            setQuickReplies(data);
+        } catch {
+            // Ignore
+        }
+    }, []);
+
     useEffect(() => {
         fetchConfig();
         fetchTeams();
         fetchChatbotConfig();
-    }, [fetchConfig, fetchTeams, fetchChatbotConfig]);
+        fetchClassifications();
+        fetchQuickReplies();
+    }, [fetchConfig, fetchTeams, fetchChatbotConfig, fetchClassifications, fetchQuickReplies]);
 
     // Poll status when showing QR code or connecting
     useEffect(() => {
@@ -206,6 +237,76 @@ const ChatConfigPage: React.FC = () => {
         });
     };
 
+    // Add classification
+    const handleAddClassification = async () => {
+        if (!newClassificationName.trim()) return;
+        setSavingClassification(true);
+        try {
+            await chatApi.createClassification({ name: newClassificationName.trim() });
+            message.success('Classificação criada');
+            setNewClassificationName('');
+            fetchClassifications();
+        } catch (error: any) {
+            message.error(error.response?.data?.detail || 'Erro ao criar classificação');
+        } finally {
+            setSavingClassification(false);
+        }
+    };
+
+    // Delete classification
+    const handleDeleteClassification = async (id: string) => {
+        try {
+            await chatApi.deleteClassification(id);
+            message.success('Classificação excluída');
+            fetchClassifications();
+        } catch (error: any) {
+            message.error(error.response?.data?.detail || 'Erro ao excluir');
+        }
+    };
+
+    // Save quick reply
+    const handleSaveQuickReply = async (values: { title: string; content: string }) => {
+        try {
+            if (editingQuickReply) {
+                await chatApi.updateQuickReply(editingQuickReply.id, values);
+                message.success('Resposta rápida atualizada');
+            } else {
+                await chatApi.createQuickReply(values);
+                message.success('Resposta rápida criada');
+            }
+            setQuickReplyModalOpen(false);
+            setEditingQuickReply(null);
+            quickReplyForm.resetFields();
+            fetchQuickReplies();
+        } catch (error: any) {
+            message.error(error.response?.data?.detail || 'Erro ao salvar');
+        }
+    };
+
+    // Delete quick reply
+    const handleDeleteQuickReply = async (id: string) => {
+        try {
+            await chatApi.deleteQuickReply(id);
+            message.success('Resposta rápida excluída');
+            fetchQuickReplies();
+        } catch (error: any) {
+            message.error(error.response?.data?.detail || 'Erro ao excluir');
+        }
+    };
+
+    // Open edit quick reply modal
+    const openEditQuickReply = (qr: QuickReply) => {
+        setEditingQuickReply(qr);
+        quickReplyForm.setFieldsValue(qr);
+        setQuickReplyModalOpen(true);
+    };
+
+    // Open new quick reply modal
+    const openNewQuickReply = () => {
+        setEditingQuickReply(null);
+        quickReplyForm.resetFields();
+        setQuickReplyModalOpen(true);
+    };
     // Get status tag
     const getStatusTag = () => {
         if (!config) return null;
@@ -597,7 +698,161 @@ const ChatConfigPage: React.FC = () => {
                         </Form>
                     </Card>
                 </TabPane>
+
+                {/* Classifications Tab */}
+                <TabPane
+                    tab={<span><TagsOutlined /> Classificações</span>}
+                    key="classifications"
+                >
+                    <Card>
+                        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                            <Text type="secondary">
+                                Classificações são usadas para categorizar os atendimentos ao encerrá-los.
+                            </Text>
+
+                            {/* Add new classification */}
+                            <Space>
+                                <Input
+                                    placeholder="Nome da classificação (ex: Suporte Finalizado)"
+                                    value={newClassificationName}
+                                    onChange={e => setNewClassificationName(e.target.value)}
+                                    onPressEnter={handleAddClassification}
+                                    style={{ width: 300 }}
+                                />
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={handleAddClassification}
+                                    loading={savingClassification}
+                                >
+                                    Adicionar
+                                </Button>
+                            </Space>
+
+                            {/* Classifications list */}
+                            <Divider style={{ margin: '12px 0' }} />
+                            {classifications.length === 0 ? (
+                                <Text type="secondary">Nenhuma classificação cadastrada.</Text>
+                            ) : (
+                                <Space wrap>
+                                    {classifications.map(c => (
+                                        <Tag
+                                            key={c.id}
+                                            closable
+                                            onClose={() => handleDeleteClassification(c.id)}
+                                            style={{ padding: '4px 12px', fontSize: 14 }}
+                                        >
+                                            {c.name}
+                                        </Tag>
+                                    ))}
+                                </Space>
+                            )}
+                        </Space>
+                    </Card>
+                </TabPane>
+
+                {/* Quick Replies Tab */}
+                <TabPane
+                    tab={<span><MessageOutlined /> Respostas Rápidas</span>}
+                    key="quick-replies"
+                >
+                    <Card>
+                        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text type="secondary">
+                                    Respostas rápidas podem ser usadas durante o atendimento para enviar mensagens pré-definidas.
+                                </Text>
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={openNewQuickReply}
+                                >
+                                    Nova Resposta
+                                </Button>
+                            </div>
+
+                            <Divider style={{ margin: '12px 0' }} />
+
+                            {quickReplies.length === 0 ? (
+                                <Text type="secondary">Nenhuma resposta rápida cadastrada.</Text>
+                            ) : (
+                                <Space direction="vertical" style={{ width: '100%' }}>
+                                    {quickReplies.map(qr => (
+                                        <Card
+                                            key={qr.id}
+                                            size="small"
+                                            style={{ background: '#fafafa' }}
+                                            extra={
+                                                <Space>
+                                                    <Button
+                                                        icon={<EditOutlined />}
+                                                        size="small"
+                                                        onClick={() => openEditQuickReply(qr)}
+                                                    >
+                                                        Editar
+                                                    </Button>
+                                                    <Button
+                                                        icon={<DeleteOutlined />}
+                                                        size="small"
+                                                        danger
+                                                        onClick={() => handleDeleteQuickReply(qr.id)}
+                                                    >
+                                                        Excluir
+                                                    </Button>
+                                                </Space>
+                                            }
+                                        >
+                                            <Text strong>{qr.title}</Text>
+                                            <br />
+                                            <Text type="secondary" style={{ whiteSpace: 'pre-wrap' }}>{qr.content}</Text>
+                                        </Card>
+                                    ))}
+                                </Space>
+                            )}
+                        </Space>
+                    </Card>
+                </TabPane>
             </Tabs>
+
+            {/* Quick Reply Modal */}
+            <Modal
+                title={editingQuickReply ? 'Editar Resposta Rápida' : 'Nova Resposta Rápida'}
+                open={quickReplyModalOpen}
+                onCancel={() => {
+                    setQuickReplyModalOpen(false);
+                    setEditingQuickReply(null);
+                    quickReplyForm.resetFields();
+                }}
+                footer={null}
+            >
+                <Form form={quickReplyForm} layout="vertical" onFinish={handleSaveQuickReply}>
+                    <Form.Item
+                        name="title"
+                        label="Título/Atalho"
+                        rules={[{ required: true, message: 'Informe um título' }]}
+                        extra="Ex: Boas vindas, Aguarde, Encerrado, etc"
+                    >
+                        <Input placeholder="Título da resposta" />
+                    </Form.Item>
+                    <Form.Item
+                        name="content"
+                        label="Conteúdo da Mensagem"
+                        rules={[{ required: true, message: 'Informe o conteúdo' }]}
+                    >
+                        <TextArea rows={4} placeholder="Digite a mensagem que será enviada..." />
+                    </Form.Item>
+                    <Form.Item>
+                        <Space>
+                            <Button type="primary" htmlType="submit">
+                                Salvar
+                            </Button>
+                            <Button onClick={() => setQuickReplyModalOpen(false)}>
+                                Cancelar
+                            </Button>
+                        </Space>
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div>
     );
 };

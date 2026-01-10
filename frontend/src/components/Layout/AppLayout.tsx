@@ -23,6 +23,7 @@ import {
     DatabaseOutlined,
     FileWordOutlined,
     MessageOutlined,
+    SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -46,6 +47,7 @@ const routePermissions: Record<string, string> = {
     '/repository': 'repository',
     '/backup': 'backup',
     '/templates': 'admin',
+    '/chat': 'chat',
     '/chat-config': 'chat',
 };
 
@@ -136,6 +138,7 @@ const AppLayout: React.FC = () => {
             children: [
                 { key: '/templates', icon: <FileWordOutlined />, label: 'Templates' },
                 { key: '/backup', icon: <DatabaseOutlined />, label: 'Backup' },
+                { key: '/powerbi', icon: <DashboardOutlined />, label: 'Power BI' },
             ],
         },
         {
@@ -143,7 +146,8 @@ const AppLayout: React.FC = () => {
             label: 'Atendimento',
             type: 'group',
             children: [
-                { key: '/chat-config', icon: <MessageOutlined />, label: 'Chat WhatsApp' },
+                { key: '/chat', icon: <MessageOutlined />, label: 'Conversas' },
+                { key: '/chat-config', icon: <SettingOutlined />, label: 'Config WhatsApp' },
             ],
         },
     ];

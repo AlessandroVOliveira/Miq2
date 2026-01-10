@@ -20,7 +20,8 @@ def create_permissions(db: Session) -> dict:
     resources = [
         'users', 'teams', 'roles', 'permissions', 'clients', 'products', 
         'checklists', 'implementations', 'service-orders', 'tasks',
-        'sprints', 'repository', 'dashboard', 'backup', 'templates'
+        'sprints', 'repository', 'dashboard', 'backup', 'templates', 
+        'chat', 'chat-config', 'powerbi'
     ]
     actions = ['create', 'read', 'update', 'delete']
     
@@ -81,7 +82,9 @@ def create_operator_role(db: Session, permissions: dict) -> Role:
         'users:read', 'teams:read', 'roles:read', 'clients:read', 'clients:update',
         'products:read', 'checklists:read', 'implementations:read', 'implementations:update',
         'service-orders:read', 'service-orders:update', 'tasks:read', 'tasks:update', 'tasks:create',
-        'sprints:read', 'repository:read', 'dashboard:read', 'templates:read'
+        'sprints:read', 'repository:read', 'dashboard:read', 'templates:read',
+        'chat:read', 'chat:create', 'chat:update',
+        'chat-config:read', 'powerbi:read'
     ]
     for perm_name in read_perms:
         if perm_name in permissions:
