@@ -140,6 +140,20 @@ Ao executar o `docker-compose up`, o sistema cria automaticamente um usuário ad
 
 ---
 
+## ⚙️ Configuração (.env)
+
+O projeto utiliza variáveis de ambiente para configuração de segurança e serviços. Existem arquivos de exemplo (`.env.example`) que devem ser copiados para `.env` e configurados antes do deploy:
+
+| Serviço | Localização do Exemplo | Descrição |
+|---------|------------------------|-----------|
+| **Docker Global** | `./.env.example` | Variáveis globais (Postgres, Senhas Admin) |
+| **Backend** | `./backend/.env.example` | Configurações específicas da API Python |
+| **Evolution API** | `./evolution-api/.env.example` | Configurações da API de WhatsApp |
+
+> **Nota:** Certifique-se de alterar as chaves e senhas padrão ao implantar em produção!
+
+---
+
 ## 📖 Documentação
 
 | Documento | Descrição |
