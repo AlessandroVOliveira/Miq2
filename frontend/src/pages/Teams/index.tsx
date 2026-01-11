@@ -1,5 +1,5 @@
 /**
- * Teams management page.
+ * Teams management page with Deep Blue design.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -8,11 +8,12 @@ import {
 } from 'antd';
 import {
     PlusOutlined, EditOutlined, DeleteOutlined,
-    SearchOutlined, ReloadOutlined
+    SearchOutlined, ReloadOutlined, TeamOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Team, TeamCreate, TeamUpdate } from '../../types';
 import { teamsApi } from '../../services/api';
+import styles from './teams.module.css';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -43,7 +44,8 @@ const Teams: React.FC = () => {
         fetchTeams();
     }, []);
 
-    const handleSearch = (value: string) => {
+    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
         setSearchText(value);
         fetchTeams(1, pagination.pageSize, value);
     };
@@ -77,7 +79,7 @@ const Teams: React.FC = () => {
             onOk: async () => {
                 try {
                     await teamsApi.delete(team.id);
-                    message.success('Equipe excluída com sucesso');
+                    message.success('Equipe excluída');
                     fetchTeams(pagination.current, pagination.pageSize, searchText);
                 } catch (error) {
                     message.error('Erro ao excluir equipe');
@@ -90,42 +92,44 @@ const Teams: React.FC = () => {
         try {
             if (editingTeam) {
                 await teamsApi.update(editingTeam.id, values);
-                message.success('Equipe atualizada com sucesso');
+                message.success('Equipe atualizada');
             } else {
                 await teamsApi.create(values as TeamCreate);
-                message.success('Equipe criada com sucesso');
+                message.success('Equipe criada');
             }
             setModalOpen(false);
             fetchTeams(pagination.current, pagination.pageSize, searchText);
         } catch (error) {
-            message.error(editingTeam ? 'Erro ao atualizar equipe' : 'Erro ao criar equipe');
+            message.error(editingTeam ? 'Erro ao atualizar' : 'Erro ao criar');
         }
     };
 
     const columns: ColumnsType<Team> = [
         {
-            title: 'Nome',
+            title: 'NOME DA EQUIPE',
             dataIndex: 'name',
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
+            render: (text) => <span style={{ fontWeight: 600, color: '#0f172a' }}>{text}</span>
         },
         {
-            title: 'Descrição',
+            title: 'DESCRIÇÃO',
             dataIndex: 'description',
             key: 'description',
             ellipsis: true,
+            render: (text) => <span style={{ color: '#64748b' }}>{text || '-'}</span>
         },
         {
-            title: 'Criado em',
+            title: 'CRIADO EM',
             dataIndex: 'created_at',
             key: 'created_at',
-            render: (date: string) => new Date(date).toLocaleDateString('pt-BR'),
+            render: (date: string) => <span style={{ color: '#64748b' }}>{new Date(date).toLocaleDateString('pt-BR')}</span>,
         },
         {
-            title: 'Ações',
+            title: <div style={{ textAlign: 'right' }}>AÇÕES</div>,
             key: 'actions',
             render: (_, record) => (
-                <Space>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                     <Button
                         type="text"
                         icon={<EditOutlined />}
@@ -137,50 +141,63 @@ const Teams: React.FC = () => {
                         icon={<DeleteOutlined />}
                         onClick={() => handleDelete(record)}
                     />
-                </Space>
+                </div>
             ),
         },
     ];
 
     return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Title level={2} style={{ margin: 0 }}>Equipes</Title>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-                    Nova Equipe
-                </Button>
+        <div style={{ minHeight: '100%', background: '#f8fafc' }}>
+            <div className={styles.pageHeader}>
+                <div className={styles.headerContent}>
+                    <div className={styles.titleSection}>
+                        <h2>Equipes</h2>
+                        <p>Gerencie equipes operacionais e grupos.</p>
+                    </div>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        size="large"
+                        style={{ background: '#1064fe' }}
+                        onClick={handleAdd}
+                    >
+                        Nova Equipe
+                    </Button>
+                </div>
             </div>
 
-            <Card>
-                <Space style={{ marginBottom: 16 }}>
-                    <Input.Search
-                        placeholder="Buscar por nome"
-                        allowClear
-                        onSearch={handleSearch}
-                        style={{ width: 300 }}
-                        prefix={<SearchOutlined />}
-                    />
-                    <Button
-                        icon={<ReloadOutlined />}
-                        onClick={() => fetchTeams(pagination.current, pagination.pageSize, searchText)}
-                    >
-                        Atualizar
-                    </Button>
-                </Space>
+            <div className={styles.contentSection}>
+                <div className={styles.tableCard}>
+                    <div className={styles.actions}>
+                        <Input
+                            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                            placeholder="Buscar equipes..."
+                            style={{ width: 300, borderRadius: 8 }}
+                            value={searchText}
+                            onChange={handleSearch}
+                        />
+                        <Button
+                            icon={<ReloadOutlined />}
+                            onClick={() => fetchTeams(pagination.current, pagination.pageSize, searchText)}
+                        >
+                            Atualizar
+                        </Button>
+                    </div>
 
-                <Table
-                    columns={columns}
-                    dataSource={teams}
-                    loading={loading}
-                    rowKey="id"
-                    pagination={{
-                        ...pagination,
-                        showSizeChanger: true,
-                        showTotal: (total) => `Total: ${total} equipes`,
-                    }}
-                    onChange={handleTableChange}
-                />
-            </Card>
+                    <Table
+                        columns={columns}
+                        dataSource={teams}
+                        loading={loading}
+                        rowKey="id"
+                        pagination={{
+                            ...pagination,
+                            showSizeChanger: true,
+                            showTotal: (total) => `Total: ${total} equipes`,
+                        }}
+                        onChange={handleTableChange}
+                    />
+                </div>
+            </div>
 
             <Modal
                 title={editingTeam ? 'Editar Equipe' : 'Nova Equipe'}
@@ -195,8 +212,8 @@ const Teams: React.FC = () => {
                 >
                     <Form.Item
                         name="name"
-                        label="Nome"
-                        rules={[{ required: true, message: 'Informe o nome' }]}
+                        label="Nome da Equipe"
+                        rules={[{ required: true, message: 'Campo obrigatório' }]}
                     >
                         <Input />
                     </Form.Item>
@@ -205,13 +222,13 @@ const Teams: React.FC = () => {
                         <TextArea rows={3} />
                     </Form.Item>
 
-                    <Form.Item>
+                    <Form.Item style={{ textAlign: 'right', marginBottom: 0 }}>
                         <Space>
-                            <Button type="primary" htmlType="submit">
-                                {editingTeam ? 'Salvar' : 'Criar'}
-                            </Button>
                             <Button onClick={() => setModalOpen(false)}>
                                 Cancelar
+                            </Button>
+                            <Button type="primary" htmlType="submit" style={{ background: '#1064fe' }}>
+                                {editingTeam ? 'Salvar' : 'Criar'}
                             </Button>
                         </Space>
                     </Form.Item>

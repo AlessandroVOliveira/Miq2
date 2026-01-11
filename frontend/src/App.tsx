@@ -106,9 +106,30 @@ const App: React.FC = () => {
       locale={ptBR}
       theme={{
         token: {
-          colorPrimary: '#667eea',
-          borderRadius: 6,
+          colorPrimary: '#1064fe',
+          borderRadius: 8,
+          fontFamily: "'Manrope', sans-serif",
+          colorBgLayout: '#f8f9fc',
         },
+        components: {
+          Layout: {
+            siderBg: '#0f172a',
+            headerBg: 'rgba(255, 255, 255, 0.8)',
+          },
+          Card: {
+            borderRadiusLG: 16,
+            boxShadowTertiary: '0 4px 20px -2px rgba(16, 100, 254, 0.08)',
+          },
+          Button: {
+            borderRadius: 8,
+            controlHeight: 40,
+          },
+          Input: {
+            borderRadius: 12,
+            controlHeight: 42,
+            colorBgContainer: '#f8fafc',
+          }
+        }
       }}
     >
       <BrowserRouter>

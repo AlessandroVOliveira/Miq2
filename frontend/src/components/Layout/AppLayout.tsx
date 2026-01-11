@@ -97,7 +97,7 @@ const AppLayout: React.FC = () => {
         {
             key: '/dashboard',
             icon: <DashboardOutlined />,
-            label: 'Dashboard',
+            label: 'Visão Geral',
         },
         {
             key: 'admin',
@@ -222,15 +222,18 @@ const AppLayout: React.FC = () => {
     const menuContent = (
         <>
             <div style={{
-                height: 64,
+                height: 96, // Matches h-24
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: 'white',
-                fontSize: isMobile ? 24 : (collapsed ? 16 : 24),
-                fontWeight: 'bold',
+                fontSize: isMobile ? 24 : (collapsed ? 20 : 24),
+                fontWeight: 800,
+                letterSpacing: '-0.025em',
+                background: 'transparent',
             }}>
                 {isMobile ? 'Miq2' : (collapsed ? 'M2' : 'Miq2')}
+
             </div>
             <Menu
                 theme="dark"
@@ -271,7 +274,7 @@ const AppLayout: React.FC = () => {
                     trigger={null}
                     collapsible
                     collapsed={collapsed}
-                    theme="dark"
+                    width={280}
                     style={{
                         overflow: 'auto',
                         height: '100vh',
@@ -279,6 +282,9 @@ const AppLayout: React.FC = () => {
                         left: 0,
                         top: 0,
                         bottom: 0,
+                        background: '#0f172a', // Brand Dark
+                        boxShadow: '4px 0 24px rgba(0,0,0,0.2)',
+                        zIndex: 20,
                     }}
                 >
                     {menuContent}
@@ -286,19 +292,22 @@ const AppLayout: React.FC = () => {
             )}
 
             <Layout style={{
-                marginLeft: isMobile ? 0 : (collapsed ? 80 : 200),
-                transition: 'all 0.2s'
+                marginLeft: isMobile ? 0 : (collapsed ? 80 : 280),
+                transition: 'all 0.2s',
+                background: '#f8f9fc'
             }}>
                 <Header style={{
-                    padding: isMobile ? '0 12px' : '0 24px',
-                    background: colorBgContainer,
+                    padding: isMobile ? '0 12px' : '0 32px',
+                    background: 'rgba(255, 255, 255, 0.8)',
+                    backdropFilter: 'blur(12px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-                    position: isMobile ? 'sticky' : 'relative',
+                    borderBottom: '1px solid #e6ebf4',
+                    position: isMobile ? 'sticky' : 'sticky',
                     top: 0,
-                    zIndex: 10,
+                    zIndex: 19,
+                    height: 80,
                 }}>
                     <Button
                         type="text"

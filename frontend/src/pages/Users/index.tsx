@@ -1,20 +1,22 @@
 /**
- * Users management page.
+ * Users management page with Deep Blue design.
  */
 import React, { useState, useEffect } from 'react';
 import {
     Table, Button, Space, Input, Modal, Form, message,
-    Tag, Switch, Select, Typography, Card
+    Tag, Switch, Select, Typography, Avatar, Dropdown
 } from 'antd';
 import {
     PlusOutlined, EditOutlined, DeleteOutlined,
-    SearchOutlined, ReloadOutlined
+    SearchOutlined, TeamOutlined, UserOutlined, MailOutlined,
+    MoreOutlined, CheckCircleFilled, CloseCircleFilled
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { User, UserCreate, UserUpdate, Team, Role } from '../../types';
 import { usersApi, teamsApi, rolesApi } from '../../services/api';
+import styles from './users.module.css';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const Users: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -25,6 +27,7 @@ const Users: React.FC = () => {
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [searchText, setSearchText] = useState('');
     const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+    const [activeTab, setActiveTab] = useState('all');
     const [form] = Form.useForm();
 
     const fetchUsers = async (page = 1, size = 10, search = '') => {
@@ -58,7 +61,8 @@ const Users: React.FC = () => {
         fetchTeamsAndRoles();
     }, []);
 
-    const handleSearch = (value: string) => {
+    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
         setSearchText(value);
         fetchUsers(1, pagination.pageSize, value);
     };
@@ -96,7 +100,7 @@ const Users: React.FC = () => {
             onOk: async () => {
                 try {
                     await usersApi.delete(user.id);
-                    message.success('Usuário excluído com sucesso');
+                    message.success('Usuário excluído');
                     fetchUsers(pagination.current, pagination.pageSize, searchText);
                 } catch (error) {
                     message.error('Erro ao excluir usuário');
@@ -109,125 +113,161 @@ const Users: React.FC = () => {
         try {
             if (editingUser) {
                 await usersApi.update(editingUser.id, values);
-                message.success('Usuário atualizado com sucesso');
+                message.success('Usuário atualizado');
             } else {
                 await usersApi.create(values as UserCreate);
-                message.success('Usuário criado com sucesso');
+                message.success('Usuário criado');
             }
             setModalOpen(false);
             fetchUsers(pagination.current, pagination.pageSize, searchText);
         } catch (error) {
-            message.error(editingUser ? 'Erro ao atualizar usuário' : 'Erro ao criar usuário');
+            message.error(editingUser ? 'Erro ao atualizar' : 'Erro ao criar');
         }
     };
 
     const columns: ColumnsType<User> = [
         {
-            title: 'Nome',
-            dataIndex: 'name',
-            key: 'name',
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            title: 'COLABORADOR',
+            key: 'employee',
+            render: (_: any, record: User) => (
+                <div className={styles.userCell}>
+                    <Avatar size={40} icon={<UserOutlined />} style={{ backgroundColor: '#e2e8f0', color: '#64748b' }} src={record.profile_image} />
+                    <div>
+                        <div className={styles.userName}>{record.name}</div>
+                        <div className={styles.userEmail}>{record.email}</div>
+                    </div>
+                </div>
+            )
         },
         {
-            title: 'Email',
-            dataIndex: 'email',
-            key: 'email',
+            title: 'CARGO',
+            key: 'role',
+            render: (_: any, record: User) => (
+                <Space wrap>
+                    {record.roles.length > 0 ? record.roles.map(role => (
+                        <Tag key={role.id} style={{ borderRadius: 99, border: 'none', background: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }}>{role.name}</Tag>
+                    )) : <Text type="secondary" style={{ fontSize: 12 }}>Sem cargo</Text>}
+                </Space>
+            )
         },
         {
-            title: 'Equipes',
-            dataIndex: 'teams',
+            title: 'EQUIPES',
             key: 'teams',
-            render: (teams: Team[]) => (
+            render: (_: any, record: User) => (
                 <Space wrap>
-                    {teams.map(team => (
-                        <Tag key={team.id} color="blue">{team.name}</Tag>
+                    {record.teams.map(team => (
+                        <Tag key={team.id} style={{ borderRadius: 99, border: 'none', background: '#f8fafc', color: '#64748b' }}>{team.name}</Tag>
                     ))}
                 </Space>
-            ),
+            )
         },
         {
-            title: 'Cargos',
-            dataIndex: 'roles',
-            key: 'roles',
-            render: (roles: Role[]) => (
-                <Space wrap>
-                    {roles.map(role => (
-                        <Tag key={role.id} color="green">{role.name}</Tag>
-                    ))}
-                </Space>
-            ),
+            title: 'STATUS',
+            key: 'status',
+            render: (_: any, record: User) => (
+                <div className={styles.statusBadge}>
+                    <div className={styles.statusDot} style={{ background: record.is_active ? '#22c55e' : '#cbd5e1' }}></div>
+                    {record.is_active ? 'Ativo' : 'Inativo'}
+                </div>
+            )
         },
         {
-            title: 'Status',
-            dataIndex: 'is_active',
-            key: 'is_active',
-            render: (isActive: boolean) => (
-                <Tag color={isActive ? 'success' : 'default'}>
-                    {isActive ? 'Ativo' : 'Inativo'}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Ações',
+            title: <div style={{ textAlign: 'right' }}>AÇÕES</div>,
             key: 'actions',
             render: (_, record) => (
-                <Space>
-                    <Button
-                        type="text"
-                        icon={<EditOutlined />}
-                        onClick={() => handleEdit(record)}
-                    />
-                    <Button
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleDelete(record)}
-                    />
-                </Space>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <Button type="link" style={{ fontWeight: 700 }} onClick={() => handleEdit(record)}>Editar</Button>
+                    <Button type="text" style={{ border: '1px solid #e2e8f0', background: 'white', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#64748b' }}>Permissões</Button>
+                </div>
             ),
         },
     ];
 
+    const stats = {
+        total: users.length, // approximation based on current page/fetch
+        active: users.filter(u => u.is_active).length,
+        pending: 0 // placeholder
+    };
+
     return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Title level={2} style={{ margin: 0 }}>Usuários</Title>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-                    Novo Usuário
-                </Button>
+        <div style={{ minHeight: '100%', background: '#f8fafc' }}>
+            {/* Header */}
+            <div className={styles.pageHeader}>
+                <div className={styles.headerContent}>
+                    <div className={styles.titleSection}>
+                        <h2>Gestão de Equipes</h2>
+                        <p>Configure cargos e níveis de acesso.</p>
+                    </div>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        size="large"
+                        style={{ background: '#1064fe', boxShadow: '0 4px 12px rgba(16, 100, 254, 0.2)' }}
+                        onClick={handleAdd}
+                    >
+                        Adicionar Membro
+                    </Button>
+                </div>
+
+                <div className={styles.statsGrid}>
+                    <div className={styles.statCard}>
+                        <div className={styles.statInfo}>
+                            <p>Total de Colaboradores</p>
+                            <p>{pagination.total}</p>
+                        </div>
+                        <div className={styles.statIcon} style={{ background: '#f1f5f9', color: '#1064fe' }}>
+                            <TeamOutlined />
+                        </div>
+                    </div>
+                    <div className={styles.statCard}>
+                        <div className={styles.statInfo}>
+                            <p>Ativos Agora</p>
+                            <p>{stats.active}</p>
+                        </div>
+                        <div className={styles.statIcon} style={{ background: '#dcfce7', color: '#16a34a' }}>
+                            <CheckCircleFilled />
+                        </div>
+                    </div>
+                </div>
+
+                <div className={styles.controlsSection}>
+
+                    <div className={styles.tabs}>
+                        <div className={`${styles.tab} ${activeTab === 'all' ? styles.tabActive : ''}`} onClick={() => setActiveTab('all')}>Todos</div>
+                        <div className={`${styles.tab} ${activeTab === 'admins' ? styles.tabActive : ''}`} onClick={() => setActiveTab('admins')}>Administradores</div>
+                        <div className={`${styles.tab} ${activeTab === 'techs' ? styles.tabActive : ''}`} onClick={() => setActiveTab('techs')}>Técnicos</div>
+                        <div className={`${styles.tab} ${activeTab === 'support' ? styles.tabActive : ''}`} onClick={() => setActiveTab('support')}>Suporte</div>
+                    </div>
+                    <div className={styles.searchContainer}>
+                        <Input
+                            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                            placeholder="Buscar membro..."
+                            style={{ borderRadius: 8, padding: '8px 12px' }}
+                            value={searchText}
+                            onChange={handleSearch}
+                        />
+                    </div>
+                </div>
             </div>
 
-            <Card>
-                <Space style={{ marginBottom: 16 }}>
-                    <Input.Search
-                        placeholder="Buscar por nome ou email"
-                        allowClear
-                        onSearch={handleSearch}
-                        style={{ width: 300 }}
-                        prefix={<SearchOutlined />}
+            {/* Table Content */}
+            <div className={styles.contentSection}>
+                <div className={styles.tableCard}>
+                    <Table
+                        columns={columns}
+                        dataSource={users}
+                        loading={loading}
+                        rowKey="id"
+                        pagination={{
+                            ...pagination,
+                            showSizeChanger: true,
+                        }}
+                        onChange={handleTableChange}
                     />
-                    <Button
-                        icon={<ReloadOutlined />}
-                        onClick={() => fetchUsers(pagination.current, pagination.pageSize, searchText)}
-                    >
-                        Atualizar
-                    </Button>
-                </Space>
+                </div>
+            </div>
 
-                <Table
-                    columns={columns}
-                    dataSource={users}
-                    loading={loading}
-                    rowKey="id"
-                    pagination={{
-                        ...pagination,
-                        showSizeChanger: true,
-                        showTotal: (total) => `Total: ${total} usuários`,
-                    }}
-                    onChange={handleTableChange}
-                />
-            </Card>
-
+            {/* Modal */}
             <Modal
                 title={editingUser ? 'Editar Usuário' : 'Novo Usuário'}
                 open={modalOpen}
@@ -241,66 +281,36 @@ const Users: React.FC = () => {
                     onFinish={handleSubmit}
                     initialValues={{ is_active: true, is_superuser: false, team_ids: [], role_ids: [] }}
                 >
-                    <Form.Item
-                        name="name"
-                        label="Nome"
-                        rules={[{ required: true, message: 'Informe o nome' }]}
-                    >
+                    <Form.Item name="name" label="Nome" rules={[{ required: true }]}>
                         <Input />
                     </Form.Item>
-
-                    <Form.Item
-                        name="email"
-                        label="Email"
-                        rules={[
-                            { required: true, message: 'Informe o email' },
-                            { type: 'email', message: 'Email inválido' }
-                        ]}
-                    >
+                    <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
                         <Input />
                     </Form.Item>
-
                     {!editingUser && (
-                        <Form.Item
-                            name="password"
-                            label="Senha"
-                            rules={[{ required: true, message: 'Informe a senha' }]}
-                        >
+                        <Form.Item name="password" label="Senha" rules={[{ required: true }]}>
                             <Input.Password />
                         </Form.Item>
                     )}
-
                     <Form.Item name="team_ids" label="Equipes">
-                        <Select
-                            mode="multiple"
-                            placeholder="Selecione as equipes"
-                            options={teams.map(t => ({ value: t.id, label: t.name }))}
-                        />
+                        <Select mode="multiple" options={teams.map(t => ({ value: t.id, label: t.name }))} placeholder="Selecione equipes" />
                     </Form.Item>
-
                     <Form.Item name="role_ids" label="Cargos">
-                        <Select
-                            mode="multiple"
-                            placeholder="Selecione os cargos"
-                            options={roles.map(r => ({ value: r.id, label: r.name }))}
-                        />
+                        <Select mode="multiple" options={roles.map(r => ({ value: r.id, label: r.name }))} placeholder="Selecione cargos" />
                     </Form.Item>
-
-                    <Form.Item name="is_active" label="Ativo" valuePropName="checked">
-                        <Switch />
-                    </Form.Item>
-
-                    <Form.Item name="is_superuser" label="Super usuário" valuePropName="checked">
-                        <Switch />
-                    </Form.Item>
-
-                    <Form.Item>
+                    <Space size="large">
+                        <Form.Item name="is_active" label="Ativo" valuePropName="checked">
+                            <Switch />
+                        </Form.Item>
+                        <Form.Item name="is_superuser" label="Superusuário" valuePropName="checked">
+                            <Switch />
+                        </Form.Item>
+                    </Space>
+                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
                         <Space>
-                            <Button type="primary" htmlType="submit">
-                                {editingUser ? 'Salvar' : 'Criar'}
-                            </Button>
-                            <Button onClick={() => setModalOpen(false)}>
-                                Cancelar
+                            <Button onClick={() => setModalOpen(false)}>Cancelar</Button>
+                            <Button type="primary" htmlType="submit" style={{ background: '#1064fe' }}>
+                                {editingUser ? 'Salvar Alterações' : 'Criar Usuário'}
                             </Button>
                         </Space>
                     </Form.Item>

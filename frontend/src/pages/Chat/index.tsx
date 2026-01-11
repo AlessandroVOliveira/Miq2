@@ -1,19 +1,20 @@
 /**
- * Chat page for WhatsApp conversations.
- * Features a split view: conversation list on the left, chat detail on the right.
+ * Chat page for WhatsApp conversations with Deep Blue design.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Layout, List, Avatar, Badge, Input, Button, Space, Typography, Tag, Spin,
-    Empty, Tooltip, Dropdown, Modal, message, Card, Popover, Select
+    Empty, Tooltip, Dropdown, Modal, message, Select, Card, Popover
 } from 'antd';
 import {
     SendOutlined, UserOutlined, TeamOutlined, SwapOutlined, CloseCircleOutlined,
     SearchOutlined, ReloadOutlined, CheckCircleOutlined, MessageOutlined,
-    SmileOutlined, PhoneOutlined, ThunderboltOutlined, EditOutlined
+    SmileOutlined, PhoneOutlined, ThunderboltOutlined, EditOutlined,
+    HistoryOutlined, EnterOutlined
 } from '@ant-design/icons';
-import { chatApi, teamsApi, Chat, ChatMessage, ChatContact, QuickReply } from '../../services/api';
-import type { Team } from '../../types';
+import { chatApi, teamsApi, usersApi, Chat, ChatMessage, ChatContact, QuickReply } from '../../services/api';
+import type { Team, User as UserType } from '../../types';
+import styles from './chat.module.css';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
@@ -25,14 +26,14 @@ const COMMON_EMOJIS = ['😊', '👍', '❤️', '😂', '🙏', '👋', '✅', 
 // Status colors
 const statusColors: Record<string, string> = {
     waiting: '#faad14',
-    in_progress: '#1890ff',
+    in_progress: '#1064fe',
     closed: '#52c41a'
 };
 
 const statusLabels: Record<string, string> = {
     waiting: 'Aguardando',
-    in_progress: 'Em Atendimento',
-    closed: 'Encerrado'
+    in_progress: 'Em Andamento',
+    closed: 'Finalizado'
 };
 
 const ChatPage: React.FC = () => {
@@ -45,7 +46,7 @@ const ChatPage: React.FC = () => {
     const [sending, setSending] = useState(false);
     const [messageText, setMessageText] = useState('');
     const [searchText, setSearchText] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string | undefined>();
+    const [statusFilter, setStatusFilter] = useState<string | undefined>('in_progress'); // Default to Active
     const [teams, setTeams] = useState<Team[]>([]);
     const [transferModalOpen, setTransferModalOpen] = useState(false);
     const [closeModalOpen, setCloseModalOpen] = useState(false);
@@ -61,6 +62,10 @@ const ChatPage: React.FC = () => {
     const [quotedMessage, setQuotedMessage] = useState<ChatMessage | null>(null);
     const [mediaPreview, setMediaPreview] = useState<{ url: string; type: string } | null>(null);
     const [allConversations, setAllConversations] = useState<Chat[]>([]);
+    const [currentUserName, setCurrentUserName] = useState<string>('Atendente');
+    const [transferTeamId, setTransferTeamId] = useState<string | null>(null);
+    const [transferUserId, setTransferUserId] = useState<string | null>(null);
+    const [teamUsers, setTeamUsers] = useState<UserType[]>([]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<any>(null);
@@ -68,8 +73,12 @@ const ChatPage: React.FC = () => {
     // Fetch conversations
     const fetchConversations = useCallback(async () => {
         try {
+            // Note: If 'all' is selected (undefined), we might want to fetch all. 
+            // The previous logic used statusFilter directly.
+            // Design has "Active", "Waiting", "Closed".
+            const status = statusFilter === 'all' ? undefined : statusFilter;
             const response = await chatApi.listConversations(1, 50, {
-                status: statusFilter,
+                status: status,
             });
             setConversations(response.items);
         } catch (error) {
@@ -95,7 +104,7 @@ const ChatPage: React.FC = () => {
         try {
             const msgs = await chatApi.getMessages(chatId);
             setMessages(msgs);
-        } catch (error) {
+        } catch {
             message.error('Erro ao carregar mensagens');
         } finally {
             setLoadingMessages(false);
@@ -108,7 +117,7 @@ const ChatPage: React.FC = () => {
             const replies = await chatApi.listQuickReplies();
             setQuickReplies(replies);
         } catch {
-            // Ignore - quick replies are optional
+            // Ignore
         }
     }, []);
 
@@ -122,13 +131,40 @@ const ChatPage: React.FC = () => {
         }
     }, []);
 
-    // Fetch ALL conversations for badge counts (not filtered)
+    // Fetch ALL conversations for badge counts
     const fetchAllConversations = useCallback(async () => {
         try {
             const response = await chatApi.listConversations(1, 100, {});
             setAllConversations(response.items);
         } catch {
             // Ignore
+        }
+    }, []);
+
+    // Fetch current user name from local storage
+    useEffect(() => {
+        const userData = localStorage.getItem('user');
+        if (userData) {
+            try {
+                const user = JSON.parse(userData);
+                setCurrentUserName(user.name || 'Atendente');
+            } catch {
+                // Ignore
+            }
+        }
+    }, []);
+
+    // Fetch users for selected team in transfer modal
+    const fetchTeamUsers = useCallback(async (teamId: string) => {
+        try {
+            const response = await usersApi.list(1, 100);
+            // Filter users that belong to the selected team
+            const usersInTeam = response.items.filter((u: UserType) =>
+                u.teams?.some((t: any) => t.id === teamId)
+            );
+            setTeamUsers(usersInTeam);
+        } catch {
+            setTeamUsers([]);
         }
     }, []);
 
@@ -140,7 +176,6 @@ const ChatPage: React.FC = () => {
             message.success('Nome atualizado');
             setEditContactModalOpen(false);
             fetchConversations();
-            // Update selected chat
             const updated = await chatApi.getConversation(selectedChat.id);
             setSelectedChat(updated);
         } catch (error: any) {
@@ -155,7 +190,6 @@ const ChatPage: React.FC = () => {
         fetchClassifications();
         fetchAllConversations();
 
-        // Poll for new conversations every 10 seconds
         const interval = setInterval(() => {
             fetchConversations();
             fetchAllConversations();
@@ -163,18 +197,15 @@ const ChatPage: React.FC = () => {
         return () => clearInterval(interval);
     }, [fetchConversations, fetchTeams, fetchQuickReplies, fetchClassifications, fetchAllConversations]);
 
-    // Scroll to bottom when messages change
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Select a conversation
     const handleSelectChat = (chat: Chat) => {
         setSelectedChat(chat);
         fetchMessages(chat.id);
     };
 
-    // Send message
     const handleSendMessage = async () => {
         if (!messageText.trim() || !selectedChat) return;
 
@@ -182,7 +213,7 @@ const ChatPage: React.FC = () => {
         try {
             await chatApi.sendMessage(selectedChat.id, messageText);
             setMessageText('');
-            // Refresh messages
+            setQuotedMessage(null); // Clear quote after send
             fetchMessages(selectedChat.id);
         } catch (error: any) {
             message.error(error.response?.data?.detail || 'Erro ao enviar mensagem');
@@ -191,16 +222,16 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // Transfer chat
     const handleTransfer = async (teamId: string, userId?: string) => {
         if (!selectedChat) return;
-
         try {
-            await chatApi.transferChat(selectedChat.id, teamId, userId);
-            message.success('Chat transferido com sucesso');
+            await chatApi.transferChat(selectedChat.id, teamId, userId || undefined);
+            message.success(userId ? 'Chat transferido para usuário' : 'Chat transferido para fila da equipe');
             setTransferModalOpen(false);
+            setTransferTeamId(null);
+            setTransferUserId(null);
+            setTeamUsers([]);
             fetchConversations();
-            // Refresh selected chat
             const response = await chatApi.getConversation(selectedChat.id);
             setSelectedChat(response);
         } catch (error: any) {
@@ -208,10 +239,8 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // Close chat
     const handleCloseChat = async () => {
         if (!selectedChat) return;
-
         try {
             await chatApi.closeChat(selectedChat.id, {
                 classification: closingClassification || undefined,
@@ -230,16 +259,13 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // Reopen closed chat
     const handleReopenChat = async () => {
         if (!selectedChat) return;
-
         try {
             await chatApi.reopenChat(selectedChat.id);
-            message.success('Chat reaberto - voltou para fila de espera');
+            message.success('Chat reaberto');
             fetchConversations();
             fetchAllConversations();
-            // Update selected chat
             const updated = await chatApi.getConversation(selectedChat.id);
             setSelectedChat(updated);
         } catch (error: any) {
@@ -247,25 +273,21 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // Format time
     const formatTime = (dateStr: string) => {
         const date = new Date(dateStr);
         const now = new Date();
         const diff = now.getTime() - date.getTime();
-
-        if (diff < 60000) return 'Agora';
-        if (diff < 3600000) return `${Math.floor(diff / 60000)}min`;
+        if (diff < 60000) return 'Now';
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
         if (diff < 86400000) return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     };
 
-    // Get contact display name
     const getContactName = (contact?: ChatContact | null) => {
-        if (!contact) return 'Desconhecido';
-        return contact.custom_name || contact.push_name || contact.phone_number || 'Desconhecido';
+        if (!contact) return 'Unknown';
+        return contact.custom_name || contact.push_name || contact.phone_number || 'Unknown';
     };
 
-    // Filter conversations
     const filteredConversations = conversations.filter(chat => {
         if (!searchText) return true;
         const name = getContactName(chat.contact);
@@ -273,413 +295,211 @@ const ChatPage: React.FC = () => {
             chat.protocol.toLowerCase().includes(searchText.toLowerCase());
     });
 
-    // Count conversations by status (from ALL conversations, not filtered)
     const statusCounts = {
         waiting: allConversations.filter(c => c.status === 'waiting').length,
         in_progress: allConversations.filter(c => c.status === 'in_progress').length,
     };
 
     return (
-        <Layout style={{ height: 'calc(100vh - 64px)', background: '#f0f2f5' }}>
-            {/* Conversations List */}
-            <Sider
-                width={420}
-                style={{
-                    background: '#ffffff',
-                    borderRight: '1px solid #e8e8e8',
-                    overflow: 'auto'
-                }}
-            >
-                {/* Header */}
-                <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid #e8e8e8', background: '#fafafa' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                        <Title level={4} style={{ margin: 0, color: '#262626' }}>
-                            <MessageOutlined style={{ marginRight: 8, color: '#1890ff' }} />
-                            Conversas
-                        </Title>
-                        <Tooltip title="Atualizar">
-                            <Button
-                                icon={<ReloadOutlined />}
-                                size="small"
-                                onClick={fetchConversations}
-                            />
-                        </Tooltip>
+        <Layout className={styles.layout}>
+            {/* Sidebar */}
+            <Sider width={360} className={styles.sidebar} theme="light">
+                <div className={styles.sidebarHeader}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 32, height: 32, background: '#1064fe', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>
+                            {currentUserName.charAt(0).toUpperCase()}
+                        </div>
+                        <Title level={5} style={{ margin: 0 }}>{currentUserName}</Title>
                     </div>
-                    <Input
-                        placeholder="Buscar conversa..."
-                        prefix={<SearchOutlined style={{ color: '#999' }} />}
-                        value={searchText}
-                        onChange={e => setSearchText(e.target.value)}
-                        allowClear
-                        style={{ marginBottom: 12 }}
-                    />
-                    {/* Status Filter Tabs */}
-                    <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
-                        <Badge count={statusCounts.waiting} size="small" offset={[-5, 0]} showZero>
-                            <Button
-                                size="small"
-                                type={statusFilter === 'waiting' ? 'primary' : 'default'}
-                                onClick={() => setStatusFilter(statusFilter === 'waiting' ? undefined : 'waiting')}
-                                style={{
-                                    borderColor: statusFilter === 'waiting' ? '#faad14' : undefined,
-                                    backgroundColor: statusFilter === 'waiting' ? '#faad14' : undefined,
-                                }}
-                            >
-                                🟡 Aguardando
-                            </Button>
-                        </Badge>
-                        <Badge count={statusCounts.in_progress} size="small" offset={[-5, 0]} showZero>
-                            <Button
-                                size="small"
-                                type={statusFilter === 'in_progress' ? 'primary' : 'default'}
-                                onClick={() => setStatusFilter(statusFilter === 'in_progress' ? undefined : 'in_progress')}
-                                style={{
-                                    borderColor: statusFilter === 'in_progress' ? '#1890ff' : undefined,
-                                }}
-                            >
-                                🔵 Atendendo
-                            </Button>
-                        </Badge>
-                        <Button
-                            size="small"
-                            type={statusFilter === 'closed' ? 'primary' : 'default'}
-                            onClick={() => setStatusFilter(statusFilter === 'closed' ? undefined : 'closed')}
-                            style={{
-                                borderColor: statusFilter === 'closed' ? '#52c41a' : undefined,
-                                backgroundColor: statusFilter === 'closed' ? '#52c41a' : undefined,
-                            }}
-                        >
-                            🟢 Encerrado
-                        </Button>
+                    <div className={styles.searchContainer}>
+                        <SearchOutlined style={{ position: 'absolute', left: 12, top: 12, color: '#94a3b8', zIndex: 1 }} />
+                        <Input
+                            placeholder="Buscar tickets ou clientes..."
+                            className={styles.searchInput}
+                            value={searchText}
+                            onChange={e => setSearchText(e.target.value)}
+                        />
                     </div>
                 </div>
 
-                {/* Conversations */}
-                {loading ? (
-                    <div style={{ padding: 40, textAlign: 'center' }}>
-                        <Spin />
-                    </div>
-                ) : filteredConversations.length === 0 ? (
-                    <Empty
-                        description={<Text style={{ color: '#fff' }}>Nenhuma conversa</Text>}
-                        style={{ padding: 40 }}
-                    />
-                ) : (
-                    <List
-                        dataSource={filteredConversations}
-                        renderItem={chat => (
-                            <List.Item
-                                onClick={() => handleSelectChat(chat)}
-                                style={{
-                                    padding: '12px 16px',
-                                    cursor: 'pointer',
-                                    background: selectedChat?.id === chat.id ? '#1890ff' : 'transparent',
-                                    borderBottom: '1px solid rgba(255,255,255,0.1)'
-                                }}
-                            >
-                                <List.Item.Meta
-                                    avatar={
-                                        <Badge
-                                            dot
-                                            color={statusColors[chat.status] || '#999'}
-                                            offset={[-4, 32]}
-                                        >
-                                            <Avatar
-                                                icon={<UserOutlined />}
-                                                style={{ backgroundColor: '#1890ff' }}
-                                            />
+                <div className={styles.filterTabs}>
+                    <button
+                        className={`${styles.filterTab} ${statusFilter === 'in_progress' ? styles.filterTabActive : ''}`}
+                        onClick={() => setStatusFilter('in_progress')}
+                    >
+                        Em Andamento ({statusCounts.in_progress})
+                    </button>
+                    <button
+                        className={`${styles.filterTab} ${statusFilter === 'waiting' ? styles.filterTabActive : ''}`}
+                        onClick={() => setStatusFilter('waiting')}
+                    >
+                        Aguardando ({statusCounts.waiting})
+                    </button>
+                    <button
+                        className={`${styles.filterTab} ${statusFilter === 'closed' ? styles.filterTabActive : ''}`}
+                        onClick={() => setStatusFilter('closed')}
+                    >
+                        Finalizado
+                    </button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {loading ? (
+                        <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
+                    ) : (
+                        <List
+                            dataSource={filteredConversations}
+                            renderItem={chat => (
+                                <div
+                                    className={`${styles.chatItem} ${selectedChat?.id === chat.id ? styles.chatItemActive : ''}`}
+                                    onClick={() => handleSelectChat(chat)}
+                                >
+                                    <div style={{ display: 'flex', gap: 12 }}>
+                                        <Badge dot color={statusColors[chat.status]} offset={[-4, 38]}>
+                                            <Avatar size={48} icon={<UserOutlined />} style={{ backgroundColor: '#e2e8f0', color: '#64748b' }} />
                                         </Badge>
-                                    }
-                                    title={
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Text strong ellipsis style={{ maxWidth: 150, color: selectedChat?.id === chat.id ? '#fff' : '#fff' }}>
-                                                {getContactName(chat.contact)}
-                                            </Text>
-                                            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-                                                {formatTime(chat.updated_at)}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <Text strong style={{ fontSize: 14 }}>{getContactName(chat.contact)}</Text>
+                                                <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(chat.updated_at)}</Text>
+                                            </div>
+                                            <Text type="secondary" ellipsis style={{ fontSize: 12, display: 'block' }}>
+                                                Ticket #{chat.protocol}
                                             </Text>
                                         </div>
-                                    }
-                                    description={
-                                        <div>
-                                            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-                                                #{chat.protocol}
-                                            </Text>
-                                            <Tag
-                                                color={statusColors[chat.status]}
-                                                style={{ marginLeft: 8, fontSize: 10 }}
-                                            >
-                                                {statusLabels[chat.status] || chat.status}
-                                            </Tag>
-                                        </div>
-                                    }
-                                />
-                            </List.Item>
-                        )}
-                    />
-                )}
+                                    </div>
+                                </div>
+                            )}
+                        />
+                    )}
+                </div>
             </Sider>
 
-            {/* Chat Detail */}
+            {/* Main Chat Area */}
             <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff' }}>
                 {!selectedChat ? (
-                    <div style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexDirection: 'column',
-                        color: '#999'
-                    }}>
-                        <MessageOutlined style={{ fontSize: 64, marginBottom: 16 }} />
-                        <Text type="secondary">Selecione uma conversa</Text>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#94a3b8' }}>
+                        <MessageOutlined style={{ fontSize: 64, marginBottom: 16, opacity: 0.5 }} />
+                        <Text type="secondary">Selecione uma conversa para iniciar</Text>
                     </div>
                 ) : (
                     <>
-                        {/* Chat Header */}
-                        <div style={{
-                            padding: '12px 16px',
-                            borderBottom: '1px solid #f0f0f0',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                        }}>
+                        <div className={styles.chatHeader}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <Title level={4} style={{ margin: 0, fontSize: 18 }}>{getContactName(selectedChat.contact)}</Title>
+                                <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<EditOutlined />}
+                                    onClick={() => {
+                                        setEditContactName(selectedChat.contact?.custom_name || selectedChat.contact?.push_name || '');
+                                        setEditContactModalOpen(true);
+                                    }}
+                                />
+                            </div>
                             <Space>
-                                <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
-                                <div>
-                                    <Space size="small">
-                                        <Text strong>{getContactName(selectedChat.contact)}</Text>
-                                        <Tooltip title="Editar nome">
-                                            <Button
-                                                type="text"
-                                                size="small"
-                                                icon={<EditOutlined />}
-                                                onClick={() => {
-                                                    setEditContactName(getContactName(selectedChat.contact));
-                                                    setEditContactModalOpen(true);
-                                                }}
-                                            />
-                                        </Tooltip>
-                                    </Space>
-                                    <br />
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                        <PhoneOutlined /> {selectedChat.contact?.phone_number || 'N/A'}
-                                    </Text>
-                                </div>
-                            </Space>
-                            <Space>
-                                <Tag color={statusColors[selectedChat.status]}>
-                                    {statusLabels[selectedChat.status]}
-                                </Tag>
-                                {selectedChat.status !== 'closed' && (
-                                    <>
-                                        <Tooltip title="Transferir">
-                                            <Button
-                                                icon={<SwapOutlined />}
-                                                onClick={() => setTransferModalOpen(true)}
-                                            />
-                                        </Tooltip>
-                                        <Tooltip title="Encerrar">
-                                            <Button
-                                                icon={<CloseCircleOutlined />}
-                                                danger
-                                                onClick={() => setCloseModalOpen(true)}
-                                            />
-                                        </Tooltip>
-                                    </>
-                                )}
-                                {selectedChat.status === 'closed' && (
-                                    <Tooltip title="Reabrir conversa">
-                                        <Button
-                                            icon={<CheckCircleOutlined />}
-                                            type="primary"
-                                            onClick={handleReopenChat}
-                                        >
-                                            Reabrir
-                                        </Button>
-                                    </Tooltip>
-                                )}
-                                <Tooltip title={showMessageSearch ? "Fechar busca" : "Buscar mensagens"}>
-                                    <Button
-                                        icon={<SearchOutlined />}
-                                        type={showMessageSearch ? 'primary' : 'default'}
-                                        onClick={() => {
-                                            setShowMessageSearch(!showMessageSearch);
-                                            if (showMessageSearch) setMessageSearchText('');
-                                        }}
+                                {showMessageSearch ? (
+                                    <Input
+                                        placeholder="Buscar na conversa..."
+                                        value={messageSearchText}
+                                        onChange={e => setMessageSearchText(e.target.value)}
+                                        style={{ width: 200 }}
+                                        suffix={<CloseCircleOutlined onClick={() => { setShowMessageSearch(false); setMessageSearchText(''); }} />}
                                     />
-                                </Tooltip>
+                                ) : (
+                                    <Button className={styles.actionButton} icon={<SearchOutlined />} onClick={() => setShowMessageSearch(true)}>Buscar</Button>
+                                )}
+                                <Button className={styles.actionButton} icon={<SwapOutlined />} onClick={() => setTransferModalOpen(true)}>Transferir</Button>
+                                {selectedChat.status !== 'closed' ? (
+                                    <Button
+                                        type="primary"
+                                        className={styles.actionButton}
+                                        style={{ background: '#1064fe', boxShadow: '0 4px 12px rgba(16, 100, 254, 0.2)' }}
+                                        icon={<CheckCircleOutlined />}
+                                        onClick={() => setCloseModalOpen(true)}
+                                    >
+                                        Resolver Ticket
+                                    </Button>
+                                ) : (
+                                    <Button type="primary" onClick={handleReopenChat}>Reabrir</Button>
+                                )}
                             </Space>
                         </div>
 
-                        {/* Messages Area */}
-                        <div style={{
-                            flex: 1,
-                            overflow: 'auto',
-                            padding: 16,
-                            background: '#f5f5f5'
-                        }}>
-                            {loadingMessages ? (
-                                <div style={{ textAlign: 'center', padding: 40 }}>
-                                    <Spin />
-                                </div>
-                            ) : messages.length === 0 ? (
-                                <Empty description="Nenhuma mensagem" />
-                            ) : (
-                                <Space direction="vertical" style={{ width: '100%' }} size="small">
-                                    {/* Message Search */}
-                                    {showMessageSearch && (
-                                        <div style={{ padding: 8, background: '#fff', borderRadius: 4, marginBottom: 8 }}>
-                                            <Input
-                                                placeholder="Buscar na conversa..."
-                                                prefix={<SearchOutlined />}
-                                                value={messageSearchText}
-                                                onChange={e => setMessageSearchText(e.target.value)}
-                                                allowClear
-                                                size="small"
-                                            />
-                                        </div>
-                                    )}
-                                    {messages
-                                        .filter(msg => !messageSearchText ||
-                                            (msg.content?.toLowerCase().includes(messageSearchText.toLowerCase())))
-                                        .map(msg => (
+                        <div className={styles.messageContainer}>
+                            {/* Date Separator */}
+                            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                                <span style={{ background: '#f8fafc', padding: '4px 12px', borderRadius: 99, fontSize: 12, color: '#64748b', fontWeight: 500 }}>Hoje</span>
+                            </div>
+
+                            {messages
+                                .filter(msg => !messageSearchText || msg.content?.toLowerCase().includes(messageSearchText.toLowerCase()))
+                                .map(msg => (
+                                    <div
+                                        key={msg.id}
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: msg.from_me ? 'flex-end' : 'flex-start',
+                                            marginBottom: 16,
+                                            gap: 12
+                                        }}
+                                    >
+                                        {!msg.from_me && <Avatar size={32} icon={<UserOutlined />} />}
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: msg.from_me ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                                             <div
-                                                key={msg.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    justifyContent: msg.from_me ? 'flex-end' : 'flex-start'
-                                                }}
+                                                className={`${styles.messageBubble} ${msg.from_me ? styles.messageStaff : styles.messageClient}`}
+                                                style={{ position: 'relative' }}
                                             >
-                                                <Card
-                                                    size="small"
-                                                    style={{
-                                                        maxWidth: '70%',
-                                                        background: msg.from_me ? '#dcf8c6' : '#fff',
-                                                        borderRadius: 8,
-                                                        cursor: 'pointer'
-                                                    }}
-                                                    bodyStyle={{ padding: '8px 12px' }}
-                                                    onClick={() => {
-                                                        if (selectedChat?.status !== 'closed') {
-                                                            setQuotedMessage(msg);
-                                                        }
-                                                    }}
-                                                >
-                                                    {/* Quoted message reference */}
-                                                    {msg.quoted_message_id && (
-                                                        <div style={{
-                                                            borderLeft: '3px solid #1890ff',
-                                                            paddingLeft: 8,
-                                                            marginBottom: 4,
-                                                            fontSize: 12,
-                                                            color: '#666',
-                                                            background: 'rgba(0,0,0,0.03)',
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4
-                                                        }}>
-                                                            <Text type="secondary" style={{ fontSize: 11 }}>
-                                                                ↩ Respondendo...
-                                                            </Text>
-                                                        </div>
-                                                    )}
-                                                    {/* Media content */}
-                                                    {msg.message_type === 'image' && msg.media_url && (
-                                                        <img
-                                                            src={msg.media_url}
-                                                            alt="Imagem"
-                                                            style={{ maxWidth: '100%', borderRadius: 4, marginBottom: 4, cursor: 'pointer' }}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setMediaPreview({ url: msg.media_url!, type: 'image' });
-                                                            }}
+                                                {msg.content}
+                                                {!msg.from_me && (
+                                                    <Tooltip title="Responder">
+                                                        <Button
+                                                            type="text"
+                                                            size="small"
+                                                            icon={<EnterOutlined />}
+                                                            onClick={() => setQuotedMessage(msg)}
+                                                            style={{ position: 'absolute', right: -30, top: 0, opacity: 0.6 }}
                                                         />
-                                                    )}
-                                                    {msg.message_type === 'audio' && msg.media_url && (
-                                                        <audio controls style={{ width: '100%', marginBottom: 4 }}>
-                                                            <source src={msg.media_url} type={msg.media_mimetype || 'audio/ogg'} />
-                                                        </audio>
-                                                    )}
-                                                    {msg.message_type === 'video' && msg.media_url && (
-                                                        <video
-                                                            controls
-                                                            style={{ maxWidth: '100%', borderRadius: 4, marginBottom: 4 }}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        >
-                                                            <source src={msg.media_url} type={msg.media_mimetype || 'video/mp4'} />
-                                                        </video>
-                                                    )}
-                                                    {msg.message_type === 'document' && msg.media_url && (
-                                                        <a href={msg.media_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
-                                                            📄 {msg.media_filename || 'Documento'}
-                                                        </a>
-                                                    )}
-                                                    {/* Text content */}
-                                                    {msg.content && <Text>{msg.content}</Text>}
-                                                    {!msg.content && !msg.media_url && <Text type="secondary">[Mensagem sem conteúdo]</Text>}
-                                                    {/* Timestamp and status */}
-                                                    <div style={{ textAlign: 'right', marginTop: 4 }}>
-                                                        <Text type="secondary" style={{ fontSize: 10 }}>
-                                                            {new Date(msg.timestamp).toLocaleTimeString('pt-BR', {
-                                                                hour: '2-digit',
-                                                                minute: '2-digit'
-                                                            })}
-                                                            {msg.from_me && (
-                                                                <CheckCircleOutlined
-                                                                    style={{
-                                                                        marginLeft: 4,
-                                                                        color: msg.status === 'read' ? '#34b7f1' : '#999'
-                                                                    }}
-                                                                />
-                                                            )}
-                                                        </Text>
-                                                    </div>
-                                                </Card>
+                                                    </Tooltip>
+                                                )}
                                             </div>
-                                        ))}
-                                    <div ref={messagesEndRef} />
-                                </Space>
-                            )}
+                                            <Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>
+                                                {msg.from_me ? 'Você' : getContactName(selectedChat.contact)} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </Text>
+                                        </div>
+                                        {msg.from_me && <Avatar size={32} src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqdPZPXzhrQSxnSLRNUxsZDfjnLb1UL-2GPHbNYFpaYe0nfr2WDMFKAtu34RINierXsilyKHrg25G8guK45DJa_DA4aKe84hLcArNTaj_Gyg45MfwSjbwn0MnbC9mOBbxufpQGHgOGvRMQHzdffvYCLGbHIt5ww9xgLR4PWYLfIJkZ2CQEP1S0_19ji2lwsEZAX6TfVFQX27dNtlQ82O99pkFT9yHZXwajtMIIrfkREdCifZ0EBZDaleb1R1ta-f6UD4asnXuG6N4j" />}
+                                    </div>
+                                ))}
+                            <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Input Area */}
-                        {selectedChat.status !== 'closed' && (
-                            <div style={{
-                                padding: '12px 16px',
-                                borderTop: '1px solid #e8e8e8',
-                                background: '#fff'
-                            }}>
-                                {/* Quoted Message Bar */}
-                                {quotedMessage && (
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        background: '#f0f2f5',
-                                        padding: '8px 12px',
-                                        borderRadius: 4,
-                                        marginBottom: 8,
-                                        borderLeft: '3px solid #1890ff'
-                                    }}>
-                                        <div>
-                                            <Text type="secondary" style={{ fontSize: 11 }}>
-                                                ↩ Respondendo a:
-                                            </Text>
-                                            <Text style={{ display: 'block', fontSize: 12 }}>
-                                                {quotedMessage.content?.substring(0, 50) || '[Mídia]'}
-                                                {quotedMessage.content && quotedMessage.content.length > 50 && '...'}
-                                            </Text>
-                                        </div>
-                                        <Button
-                                            type="text"
-                                            size="small"
-                                            icon={<CloseCircleOutlined />}
-                                            onClick={() => setQuotedMessage(null)}
-                                        />
+                        <div className={styles.inputArea}>
+                            {quotedMessage && (
+                                <div style={{ background: '#f1f5f9', padding: '8px 12px', borderRadius: 8, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <Text type="secondary" style={{ fontSize: 11 }}>Respondendo a:</Text>
+                                        <Text style={{ fontSize: 13, display: 'block' }}>{quotedMessage.content?.substring(0, 50)}...</Text>
                                     </div>
-                                )}
-                                {/* Toolbar */}
-                                <div style={{ marginBottom: 8, display: 'flex', gap: 4 }}>
+                                    <Button type="text" size="small" icon={<CloseCircleOutlined />} onClick={() => setQuotedMessage(null)} />
+                                </div>
+                            )}
+                            <div className={styles.inputBar}>
+                                <Button type="text" shape="circle" icon={<SearchOutlined style={{ fontSize: 20, color: '#94a3b8' }} />} />
+                                <TextArea
+                                    className={styles.inputField}
+                                    placeholder="Digite sua resposta..."
+                                    autoSize
+                                    value={messageText}
+                                    onChange={e => setMessageText(e.target.value)}
+                                    ref={inputRef}
+                                    onPressEnter={(e) => {
+                                        if (!e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSendMessage();
+                                        }
+                                    }}
+                                />
+                                <Space>
                                     <Popover
                                         trigger="click"
                                         open={showEmojiPicker}
@@ -706,9 +526,7 @@ const ChatPage: React.FC = () => {
                                             </div>
                                         }
                                     >
-                                        <Tooltip title="Emojis">
-                                            <Button icon={<SmileOutlined />} size="small" />
-                                        </Tooltip>
+                                        <Button type="text" shape="circle" icon={<SmileOutlined style={{ fontSize: 20, color: '#94a3b8' }} />} />
                                     </Popover>
                                     <Dropdown
                                         trigger={['click']}
@@ -722,65 +540,85 @@ const ChatPage: React.FC = () => {
                                                 : [{ key: 'empty', label: 'Nenhuma resposta rápida', disabled: true }]
                                         }}
                                     >
-                                        <Tooltip title="Respostas Rápidas">
-                                            <Button icon={<ThunderboltOutlined />} size="small" />
-                                        </Tooltip>
+                                        <Button type="text" shape="circle" icon={<ThunderboltOutlined style={{ fontSize: 20, color: '#94a3b8' }} />} />
                                     </Dropdown>
-                                </div>
-                                {/* Input */}
-                                <Space.Compact style={{ width: '100%' }}>
-                                    <TextArea
-                                        ref={inputRef}
-                                        placeholder="Digite sua mensagem..."
-                                        value={messageText}
-                                        onChange={e => setMessageText(e.target.value)}
-                                        onPressEnter={e => {
-                                            if (!e.shiftKey) {
-                                                e.preventDefault();
-                                                handleSendMessage();
-                                            }
-                                        }}
-                                        autoSize={{ minRows: 1, maxRows: 4 }}
-                                        style={{ flex: 1 }}
-                                    />
                                     <Button
                                         type="primary"
+                                        shape="circle"
                                         icon={<SendOutlined />}
-                                        loading={sending}
+                                        size="large"
+                                        style={{ background: '#1064fe', boxShadow: '0 4px 10px rgba(16, 100, 254, 0.3)' }}
                                         onClick={handleSendMessage}
-                                    >
-                                        Enviar
-                                    </Button>
-                                </Space.Compact>
+                                        loading={sending}
+                                    />
+                                </Space>
                             </div>
-                        )}
+                            <div style={{ textAlign: 'center', marginTop: 8 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>Pressione <Text strong>Enter</Text> para enviar</Text>
+                            </div>
+                        </div>
                     </>
                 )}
             </Content>
 
-            {/* Transfer Modal */}
+            {/* Modals placed here for context */}
             <Modal
                 title="Transferir Conversa"
                 open={transferModalOpen}
-                onCancel={() => setTransferModalOpen(false)}
-                footer={null}
+                onCancel={() => {
+                    setTransferModalOpen(false);
+                    setTransferTeamId(null);
+                    setTransferUserId(null);
+                    setTeamUsers([]);
+                }}
+                onOk={() => {
+                    if (transferTeamId) {
+                        handleTransfer(transferTeamId, transferUserId || undefined);
+                    }
+                }}
+                okText={transferUserId ? 'Transferir para Usuário' : 'Transferir para Fila'}
+                okButtonProps={{ disabled: !transferTeamId }}
             >
-                <Space direction="vertical" style={{ width: '100%' }}>
-                    <Text>Selecione a equipe para transferir:</Text>
-                    {teams.map(team => (
-                        <Button
-                            key={team.id}
-                            block
-                            icon={<TeamOutlined />}
-                            onClick={() => handleTransfer(team.id)}
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <div>
+                        <Text strong>Equipe:</Text>
+                        <Select
+                            placeholder="Selecione a equipe"
+                            value={transferTeamId}
+                            onChange={(value) => {
+                                setTransferTeamId(value);
+                                setTransferUserId(null);
+                                if (value) fetchTeamUsers(value);
+                            }}
+                            style={{ width: '100%', marginTop: 8 }}
                         >
-                            {team.name}
-                        </Button>
-                    ))}
+                            {teams.map(team => (
+                                <Select.Option key={team.id} value={team.id}>{team.name}</Select.Option>
+                            ))}
+                        </Select>
+                    </div>
+                    {transferTeamId && (
+                        <div>
+                            <Text strong>Usuário (opcional):</Text>
+                            <Select
+                                placeholder="Deixe vazio para fila geral"
+                                value={transferUserId}
+                                onChange={setTransferUserId}
+                                style={{ width: '100%', marginTop: 8 }}
+                                allowClear
+                            >
+                                {teamUsers.map(user => (
+                                    <Select.Option key={user.id} value={user.id}>{user.name}</Select.Option>
+                                ))}
+                            </Select>
+                            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                                {transferUserId ? 'O chamado irá para "Em Andamento" do usuário selecionado' : 'O chamado irá para a fila "Aguardando" da equipe'}
+                            </Text>
+                        </div>
+                    )}
                 </Space>
             </Modal>
 
-            {/* Close Modal */}
             <Modal
                 title="Encerrar Conversa"
                 open={closeModalOpen}
@@ -799,59 +637,35 @@ const ChatPage: React.FC = () => {
                             style={{ width: '100%', marginTop: 8 }}
                             allowClear
                         >
-                            {classifications.map(c => (
-                                <Select.Option key={c.id} value={c.name}>
-                                    {c.name}
-                                </Select.Option>
-                            ))}
+                            {classifications.map(c => <Select.Option key={c.id} value={c.name}>{c.name}</Select.Option>)}
                         </Select>
                     </div>
                     <div>
-                        <Text>Comentários (opcional):</Text>
+                        <Text>Comentários finais:</Text>
                         <TextArea
-                            rows={3}
-                            placeholder="Observações sobre o atendimento..."
                             value={closingComments}
                             onChange={e => setClosingComments(e.target.value)}
+                            style={{ marginTop: 8 }}
                         />
                     </div>
                 </Space>
             </Modal>
 
-            {/* Edit Contact Modal */}
             <Modal
-                title="Editar Nome do Contato"
+                title="Editar Contato"
                 open={editContactModalOpen}
                 onCancel={() => setEditContactModalOpen(false)}
                 onOk={handleEditContactName}
-                okText="Salvar"
             >
-                <Input
-                    placeholder="Nome personalizado"
-                    value={editContactName}
-                    onChange={e => setEditContactName(e.target.value)}
-                />
-            </Modal>
-
-            {/* Media Preview Modal */}
-            <Modal
-                title={null}
-                open={!!mediaPreview}
-                onCancel={() => setMediaPreview(null)}
-                footer={null}
-                width="auto"
-                centered
-                bodyStyle={{ padding: 0, textAlign: 'center' }}
-            >
-                {mediaPreview?.type === 'image' && (
-                    <img
-                        src={mediaPreview.url}
-                        alt="Preview"
-                        style={{ maxWidth: '90vw', maxHeight: '80vh' }}
+                <Space direction="vertical" style={{ width: '100%' }}>
+                    <Text>Nome do contato:</Text>
+                    <Input
+                        value={editContactName}
+                        onChange={e => setEditContactName(e.target.value)}
                     />
-                )}
+                </Space>
             </Modal>
-        </Layout >
+        </Layout>
     );
 };
 

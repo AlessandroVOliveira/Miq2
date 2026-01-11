@@ -184,17 +184,30 @@ async def list_files(
     current_user: User = Depends(require_permission("repository", "read"))
 ):
     """List repository files."""
+    from sqlalchemy import or_, and_
+    
     query = db.query(RepositoryFile)
     
     # Non-superusers can only see files from their teams' categories
     if not current_user.is_superuser:
         user_team_ids = [team.id for team in current_user.teams]
         if not user_team_ids:
-            # User has no teams, return empty result
-            return RepositoryFileListResponse(items=[], total=0, page=page, size=size)
-        # Join with category to filter by team
-        query = query.join(FileCategory, RepositoryFile.category_id == FileCategory.id)
-        query = query.filter(FileCategory.team_id.in_(user_team_ids))
+            # User has no teams - only show files they uploaded themselves
+            query = query.filter(RepositoryFile.uploaded_by_id == current_user.id)
+        else:
+            # Use OUTER JOIN to include files the user uploaded (even without category)
+            query = query.outerjoin(FileCategory, RepositoryFile.category_id == FileCategory.id)
+            query = query.filter(
+                or_(
+                    # Files uploaded by the current user (can always see their own)
+                    RepositoryFile.uploaded_by_id == current_user.id,
+                    # Files in categories that belong to user's teams
+                    and_(
+                        RepositoryFile.category_id.isnot(None),
+                        FileCategory.team_id.in_(user_team_ids)
+                    )
+                )
+            )
     
     if category_id:
         query = query.filter(RepositoryFile.category_id == category_id)
@@ -210,6 +223,8 @@ async def list_files(
     
     total = query.count()
     files = query.order_by(RepositoryFile.created_at.desc()).offset((page - 1) * size).limit(size).all()
+
+
     
     items = [RepositoryFileListItem(
         id=f.id, filename=f.filename, original_filename=f.original_filename,

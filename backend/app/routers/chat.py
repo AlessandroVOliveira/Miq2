@@ -527,9 +527,50 @@ async def list_chats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("chat", "read"))
 ):
-    """List chats/conversations with filters."""
+    """List chats/conversations with filters and visibility rules.
+    
+    Visibility rules:
+    - WAITING: visible to team members (team_id matches user's teams)
+    - IN_PROGRESS: visible only to the assigned user (owner)
+    - CLOSED: visible to all team members
+    - Superusers can see all chats
+    """
+    from sqlalchemy import or_, and_
+    
     query = db.query(Chat)
     
+    # Apply visibility rules for non-superusers
+    if not current_user.is_superuser:
+        user_team_ids = [team.id for team in current_user.teams]
+        
+        if not user_team_ids:
+            # User has no teams - only show chats assigned to them
+            query = query.filter(Chat.assigned_user_id == current_user.id)
+        else:
+            # Build visibility conditions based on status
+            query = query.filter(
+                or_(
+                    # WAITING chats: visible to team members
+                    and_(
+                        Chat.status == ChatStatus.WAITING,
+                        Chat.team_id.in_(user_team_ids)
+                    ),
+                    # IN_PROGRESS chats: visible only to the assigned user
+                    and_(
+                        Chat.status == ChatStatus.IN_PROGRESS,
+                        Chat.assigned_user_id == current_user.id
+                    ),
+                    # CLOSED chats: visible to team members
+                    and_(
+                        Chat.status == ChatStatus.CLOSED,
+                        Chat.team_id.in_(user_team_ids)
+                    ),
+                    # Also show chats without team but assigned to user
+                    Chat.assigned_user_id == current_user.id
+                )
+            )
+    
+    # Apply additional filters
     if status:
         query = query.filter(Chat.status == status)
     if team_id:
@@ -543,6 +584,7 @@ async def list_chats(
     chats = query.offset((page - 1) * size).limit(size).all()
     
     return ChatListResponse(items=chats, total=total, page=page, size=size)
+
 
 
 @router.get("/conversations/{chat_id}", response_model=ChatResponse)
@@ -594,6 +636,27 @@ async def send_message(
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
     
+    # Validate contact exists
+    if not chat.contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chat não tem contato associado"
+        )
+    
+    # Get phone number - prefer remote_jid, fallback to phone_number
+    contact_number = None
+    if chat.contact.remote_jid:
+        # Extract number from JID (remove @s.whatsapp.net)
+        contact_number = chat.contact.remote_jid.split('@')[0]
+    elif chat.contact.phone_number:
+        contact_number = chat.contact.phone_number
+    
+    if not contact_number:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Contato não tem número de telefone"
+        )
+    
     config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
     if not config or config.connection_status != ConnectionStatus.CONNECTED:
         raise HTTPException(
@@ -602,9 +665,11 @@ async def send_message(
         )
     
     try:
+        logger.info(f"Sending message to {contact_number} via instance {config.instance_name}")
+        
         result = await evolution_api.send_text(
             instance_name=config.instance_name,
-            number=chat.contact.phone_number,
+            number=contact_number,
             text=message.text
         )
         
@@ -619,10 +684,12 @@ async def send_message(
         return {"status": "sent", "message_id": result.get("key", {}).get("id")}
         
     except EvolutionAPIError as e:
+        logger.error(f"Evolution API error sending message: {e.message}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Erro ao enviar mensagem: {e.message}"
         )
+
 
 
 @router.post("/conversations/{chat_id}/transfer")
