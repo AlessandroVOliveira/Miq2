@@ -4,19 +4,19 @@
 import React, { useState, useEffect } from 'react';
 import {
     Table, Button, Space, Input, Modal, Form, message,
-    Tag, Switch, Select, Typography, Avatar, Dropdown
+    Tag, Switch, Select, Typography, Avatar
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined,
-    SearchOutlined, TeamOutlined, UserOutlined, MailOutlined,
-    MoreOutlined, CheckCircleFilled, CloseCircleFilled
+    PlusOutlined,
+    SearchOutlined, TeamOutlined, UserOutlined,
+    CheckCircleFilled
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { User, UserCreate, UserUpdate, Team, Role } from '../../types';
 import { usersApi, teamsApi, rolesApi } from '../../services/api';
 import styles from './users.module.css';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const Users: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -27,7 +27,6 @@ const Users: React.FC = () => {
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [searchText, setSearchText] = useState('');
     const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
-    const [activeTab, setActiveTab] = useState('all');
     const [form] = Form.useForm();
 
     const fetchUsers = async (page = 1, size = 10, search = '') => {
@@ -177,7 +176,7 @@ const Users: React.FC = () => {
             render: (_, record) => (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                     <Button type="link" style={{ fontWeight: 700 }} onClick={() => handleEdit(record)}>Editar</Button>
-                    <Button type="text" style={{ border: '1px solid #e2e8f0', background: 'white', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#64748b' }}>Permissões</Button>
+                    <Button type="text" danger style={{ border: '1px solid #fecaca', background: 'white', borderRadius: 8, fontSize: 12, fontWeight: 700 }} onClick={() => handleDelete(record)}>Excluir</Button>
                 </div>
             ),
         },
@@ -231,18 +230,11 @@ const Users: React.FC = () => {
                 </div>
 
                 <div className={styles.controlsSection}>
-
-                    <div className={styles.tabs}>
-                        <div className={`${styles.tab} ${activeTab === 'all' ? styles.tabActive : ''}`} onClick={() => setActiveTab('all')}>Todos</div>
-                        <div className={`${styles.tab} ${activeTab === 'admins' ? styles.tabActive : ''}`} onClick={() => setActiveTab('admins')}>Administradores</div>
-                        <div className={`${styles.tab} ${activeTab === 'techs' ? styles.tabActive : ''}`} onClick={() => setActiveTab('techs')}>Técnicos</div>
-                        <div className={`${styles.tab} ${activeTab === 'support' ? styles.tabActive : ''}`} onClick={() => setActiveTab('support')}>Suporte</div>
-                    </div>
                     <div className={styles.searchContainer}>
                         <Input
                             prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
                             placeholder="Buscar membro..."
-                            style={{ borderRadius: 8, padding: '8px 12px' }}
+                            style={{ borderRadius: 8, padding: '8px 12px', width: 300 }}
                             value={searchText}
                             onChange={handleSearch}
                         />

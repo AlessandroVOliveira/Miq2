@@ -20,6 +20,7 @@ const STORAGE_KEY = 'miq2_powerbi_dashboards';
 const PowerBIPage: React.FC = () => {
     const [dashboards, setDashboards] = useState<SavedDashboard[]>([]);
     const [activeDashboard, setActiveDashboard] = useState<SavedDashboard | null>(null);
+    const [zoom, setZoom] = useState(100);
     const [form] = Form.useForm();
 
     // Load saved dashboards from localStorage
@@ -111,27 +112,51 @@ const PowerBIPage: React.FC = () => {
                                 <Card
                                     title={activeDashboard.name}
                                     extra={
-                                        <Button
-                                            danger
-                                            type="text"
-                                            icon={<DeleteOutlined />}
-                                            onClick={() => handleRemove(activeDashboard.id)}
-                                        >
-                                            Remover
-                                        </Button>
+                                        <Space>
+                                            <span style={{ fontSize: 12, color: '#666' }}>Zoom:</span>
+                                            <input
+                                                type="range"
+                                                min="50"
+                                                max="200"
+                                                value={zoom}
+                                                onChange={(e) => setZoom(Number(e.target.value))}
+                                                style={{ width: 120, cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: 12, color: '#666', minWidth: 40 }}>{zoom}%</span>
+                                            <Button
+                                                danger
+                                                type="text"
+                                                icon={<DeleteOutlined />}
+                                                onClick={() => handleRemove(activeDashboard.id)}
+                                            >
+                                                Remover
+                                            </Button>
+                                        </Space>
                                     }
-                                    bodyStyle={{ padding: 0, height: 'calc(100vh - 300px)', minHeight: 500 }}
+                                    bodyStyle={{
+                                        padding: 0,
+                                        height: `calc((100vh - 300px) * ${zoom / 100})`,
+                                        minHeight: 500 * (zoom / 100),
+                                        overflow: 'hidden'
+                                    }}
                                 >
-                                    <iframe
-                                        src={activeDashboard.url}
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            border: 'none'
-                                        }}
-                                        allowFullScreen
-                                        title={activeDashboard.name}
-                                    />
+                                    <div style={{
+                                        width: `${10000 / zoom}%`,
+                                        height: `${10000 / zoom}%`,
+                                        transform: `scale(${zoom / 100})`,
+                                        transformOrigin: 'top left'
+                                    }}>
+                                        <iframe
+                                            src={activeDashboard.url}
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                border: 'none'
+                                            }}
+                                            allowFullScreen
+                                            title={activeDashboard.name}
+                                        />
+                                    </div>
                                 </Card>
                             )}
                         </>

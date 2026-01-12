@@ -4,12 +4,12 @@
 import React, { useState, useEffect } from 'react';
 import {
     Table, Button, Space, Input, Modal, Form, message,
-    Typography, Row, Col, Tag, Avatar, Badge, Dropdown, Menu
+    Typography, Row, Col, Tag, Avatar, Badge
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined,
-    SearchOutlined, ReloadOutlined, MoreOutlined,
-    CheckCircleOutlined, SyncOutlined, UserOutlined, MailOutlined
+    PlusOutlined,
+    SearchOutlined,
+    CheckCircleOutlined, UserOutlined, MailOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Client, ClientCreate, ClientUpdate } from '../../types';
@@ -174,14 +174,10 @@ const Clients: React.FC = () => {
             key: 'actions',
             align: 'right',
             render: (_, record) => (
-                <Dropdown overlay={
-                    <Menu items={[
-                        { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: () => handleEdit(record) },
-                        { key: 'delete', label: 'Excluir', icon: <DeleteOutlined />, danger: true, onClick: () => handleDelete(record) }
-                    ]} />
-                } trigger={['click']}>
-                    <Button type="text" icon={<MoreOutlined style={{ color: '#9ca3af', fontSize: 20 }} />} />
-                </Dropdown>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <Button type="link" style={{ fontWeight: 700 }} onClick={() => handleEdit(record)}>Editar</Button>
+                    <Button type="text" danger style={{ border: '1px solid #fecaca', background: 'white', borderRadius: 8, fontSize: 12, fontWeight: 700 }} onClick={() => handleDelete(record)}>Excluir</Button>
+                </div>
             ),
         },
     ];
