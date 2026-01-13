@@ -312,22 +312,32 @@ async def handle_webhook(
         data = payload.get("data", {})
         
         logger.info(f"Webhook received: {event} from {instance}")
+        print(f"========== WEBHOOK RECEIVED ==========")
+        print(f"Event: {event}")
+        print(f"Instance: {instance}")
+        print(f"Payload keys: {payload.keys()}")
+        print(f"Data: {data}")
+        print(f"=======================================")
         
-        if event == "CONNECTION_UPDATE":
+        if event == "connection.update":
             await _handle_connection_update(db, instance, data)
-        elif event == "QRCODE_UPDATED":
+        elif event == "qrcode.updated":
             await _handle_qrcode_update(db, instance, data)
-        elif event == "MESSAGES_UPSERT":
+        elif event == "messages.upsert":
             await _handle_message_upsert(db, instance, data)
-        elif event == "MESSAGES_UPDATE":
+        elif event == "send.message":
+            await _handle_send_message(db, instance, data)
+        elif event == "messages.update":
             await _handle_message_update(db, instance, data)
-        elif event == "CONTACTS_UPSERT":
+        elif event == "contacts.upsert" or event == "contacts.update":
             await _handle_contacts_upsert(db, instance, data)
         
         return {"status": "ok"}
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
 
@@ -369,20 +379,34 @@ async def _handle_qrcode_update(db: Session, instance: str, data: dict):
 
 async def _handle_message_upsert(db: Session, instance: str, data: dict):
     """Handle new message event."""
+    logger.info(f"Processing MESSAGES_UPSERT for instance: {instance}")
+    
     key = data.get("key", {})
     message = data.get("message", {})
+    
+    logger.info(f"Message key: {key}")
+    logger.info(f"Message content keys: {message.keys() if message else 'empty'}")
     
     remote_jid = key.get("remoteJid", "")
     message_id = key.get("id")
     from_me = key.get("fromMe", False)
     
+    logger.info(f"remote_jid: {remote_jid}, message_id: {message_id}, from_me: {from_me}")
+    
     # Skip group messages for now
     if "@g.us" in remote_jid:
+        logger.info(f"Skipping group message: {remote_jid}")
+        return
+    
+    # Skip empty jid
+    if not remote_jid:
+        logger.warning(f"Empty remote_jid, skipping message")
         return
     
     # Get or create contact
     contact = db.query(ChatContact).filter(ChatContact.remote_jid == remote_jid).first()
     if not contact:
+        logger.info(f"Creating new contact for {remote_jid}")
         contact = ChatContact(
             remote_jid=remote_jid,
             push_name=data.get("pushName"),
@@ -390,21 +414,32 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
         )
         db.add(contact)
         db.flush()
+        logger.info(f"Contact created with ID: {contact.id}")
     else:
+        logger.info(f"Found existing contact: {contact.id}")
         contact.last_contact_at = datetime.utcnow()
         if data.get("pushName"):
             contact.push_name = data.get("pushName")
     
     # Get or create chat
     if not from_me:
+        # First check for active (non-closed) chat
         chat = db.query(Chat).filter(
             Chat.contact_id == contact.id,
             Chat.status != ChatStatus.CLOSED
         ).first()
         
+        # If no active chat, check for chat awaiting rating (recently closed but waiting for rating)
+        if not chat:
+            chat = db.query(Chat).filter(
+                Chat.contact_id == contact.id,
+                Chat.chatbot_state == ChatbotState.RATING
+            ).order_by(Chat.closed_at.desc()).first()
+        
         if not chat:
             # Create new chat
             protocol = f"ATD{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            logger.info(f"Creating new chat with protocol: {protocol}")
             chat = Chat(
                 protocol=protocol,
                 contact_id=contact.id,
@@ -413,6 +448,9 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
             )
             db.add(chat)
             db.flush()
+            logger.info(f"Chat created with ID: {chat.id}, status: {chat.status}")
+        else:
+            logger.info(f"Found existing chat: {chat.id}, status: {chat.status}, state: {chat.chatbot_state}")
     else:
         # For outgoing messages, find the active chat
         chat = db.query(Chat).filter(
@@ -465,6 +503,205 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
     db.add(chat_message)
     
     db.commit()
+    
+    # Process chatbot if it's a received message and chatbot is active
+    if not from_me:
+        await _process_chatbot(db, instance, chat, content, remote_jid)
+
+
+async def _handle_send_message(db: Session, instance: str, data: dict):
+    """Handle sent message event (messages sent by the system/agent)."""
+    key = data.get("key", {})
+    message = data.get("message", {})
+    
+    remote_jid = key.get("remoteJid", "")
+    message_id = key.get("id")
+    from_me = key.get("fromMe", True)  # send.message is always fromMe
+    
+    print(f"Processing send.message: {message_id} to {remote_jid}")
+    
+    # Skip group messages
+    if "@g.us" in remote_jid:
+        return
+    
+    if not remote_jid:
+        return
+    
+    # Find the contact
+    contact = db.query(ChatContact).filter(ChatContact.remote_jid == remote_jid).first()
+    if not contact:
+        return
+    
+    # Find active chat
+    chat = db.query(Chat).filter(
+        Chat.contact_id == contact.id,
+        Chat.status != ChatStatus.CLOSED
+    ).first()
+    
+    if not chat:
+        return
+    
+    # Check if message already exists (avoid duplicates)
+    existing = db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
+    if existing:
+        return
+    
+    # Determine message content
+    content = None
+    msg_type = "text"
+    
+    if "conversation" in message:
+        content = message.get("conversation")
+    elif "extendedTextMessage" in message:
+        content = message.get("extendedTextMessage", {}).get("text")
+    
+    # Create message record
+    chat_message = ChatMessage(
+        chat_id=chat.id,
+        message_id=message_id,
+        remote_jid=remote_jid,
+        from_me=True,
+        message_type=msg_type,
+        content=content,
+        status="sent",
+        timestamp=datetime.utcnow()
+    )
+    db.add(chat_message)
+    db.commit()
+    
+    print(f"Saved sent message: {message_id}")
+
+
+async def _process_chatbot(db: Session, instance: str, chat: Chat, message_content: str, remote_jid: str):
+    """Process chatbot logic based on chat state."""
+    from app.models.team import Team
+    
+    # Get chatbot config
+    chatbot_config = db.query(ChatbotConfig).first()
+    if not chatbot_config or not chatbot_config.is_active:
+        print("Chatbot is not active, skipping")
+        return
+    
+    # Get chat config for instance name
+    chat_config = db.query(ChatConfig).filter(ChatConfig.instance_name == instance).first()
+    if not chat_config:
+        print(f"Chat config not found for instance: {instance}")
+        return
+    
+    print(f"Processing chatbot for chat {chat.id}, state: {chat.chatbot_state}")
+    
+    # Get menu options from config, fallback to teams if not configured
+    menu_options = chatbot_config.menu_options or []
+    if not menu_options:
+        # Fallback: build menu from teams
+        teams = db.query(Team).all()
+        menu_options = [{"option": str(idx), "text": team.name, "team_id": str(team.id)} for idx, team in enumerate(teams, 1)]
+    
+    # Process based on current chatbot state
+    if chat.chatbot_state == ChatbotState.WELCOME:
+        # First contact - send welcome message and menu
+        welcome_msg = chatbot_config.welcome_message
+        
+        # Build menu text from menu_options
+        menu_text = f"\n\n{chatbot_config.menu_message}\n"
+        
+        for opt in menu_options:
+            menu_text += f"\n{opt.get('option', '')} - {opt.get('text', '')}"
+        
+        full_message = welcome_msg + menu_text
+        
+        try:
+            await evolution_api.send_text(
+                instance_name=instance,
+                number=remote_jid.replace("@s.whatsapp.net", ""),
+                text=full_message
+            )
+            print(f"Sent welcome message to {remote_jid}")
+            
+            # Update chat state to MENU
+            chat.chatbot_state = ChatbotState.MENU
+            db.commit()
+        except Exception as e:
+            print(f"Error sending welcome message: {e}")
+    
+    elif chat.chatbot_state == ChatbotState.MENU:
+        # User is selecting from menu
+        user_input = message_content.strip()
+        
+        # Find matching option
+        selected_option = None
+        for opt in menu_options:
+            if opt.get("option") == user_input:
+                selected_option = opt
+                break
+        
+        if selected_option:
+            team_id = selected_option.get("team_id")
+            option_text = selected_option.get("text", "")
+            
+            # Assign chat to selected team and move to waiting queue
+            if team_id:
+                from uuid import UUID
+                chat.team_id = UUID(team_id) if isinstance(team_id, str) else team_id
+            chat.chatbot_state = ChatbotState.WAITING_AGENT
+            db.commit()
+            
+            # Send queue message
+            queue_msg = chatbot_config.queue_message or f"Você será atendido em {option_text}. Aguarde um momento."
+            
+            await evolution_api.send_text(
+                instance_name=instance,
+                number=remote_jid.replace("@s.whatsapp.net", ""),
+                text=queue_msg
+            )
+            print(f"Chat {chat.id} assigned to option: {option_text}")
+        else:
+            # Invalid option - send error message and repeat menu
+            error_msg = chatbot_config.invalid_option_message or "Opção inválida. Por favor, escolha uma das opções disponíveis."
+            menu_text = f"\n\n{chatbot_config.menu_message}\n"
+            
+            for opt in menu_options:
+                menu_text += f"\n{opt.get('option', '')} - {opt.get('text', '')}"
+            
+            full_message = error_msg + menu_text
+            
+            await evolution_api.send_text(
+                instance_name=instance,
+                number=remote_jid.replace("@s.whatsapp.net", ""),
+                text=full_message
+            )
+    
+    elif chat.chatbot_state == ChatbotState.RATING:
+        # User is providing rating
+        try:
+            rating = int(message_content.strip())
+            if 1 <= rating <= 10:
+                # Save rating
+                chat.rating = rating
+                chat.chatbot_state = ChatbotState.FINISHED
+                db.commit()
+                
+                # Send thanks message
+                thanks_msg = chatbot_config.rating_thanks_message or "Obrigado pela avaliação! Até a próxima. 👋"
+                
+                await evolution_api.send_text(
+                    instance_name=instance,
+                    number=remote_jid.replace("@s.whatsapp.net", ""),
+                    text=thanks_msg
+                )
+                print(f"Rating {rating} saved for chat {chat.id}")
+            else:
+                raise ValueError("Invalid rating")
+        except (ValueError, TypeError):
+            # Invalid rating - ask again
+            await evolution_api.send_text(
+                instance_name=instance,
+                number=remote_jid.replace("@s.whatsapp.net", ""),
+                text="Por favor, digite um número de 1 a 10 para avaliar nosso atendimento:"
+            )
+    
+    # If chat is WITH_AGENT, don't process chatbot (human is handling)
+    # If chat is WAITING_AGENT, nothing to do until agent takes over
 
 
 async def _handle_message_update(db: Session, instance: str, data: dict):
@@ -544,16 +781,27 @@ async def list_chats(
         user_team_ids = [team.id for team in current_user.teams]
         
         if not user_team_ids:
-            # User has no teams - only show chats assigned to them
-            query = query.filter(Chat.assigned_user_id == current_user.id)
+            # User has no teams - show chats assigned to them OR waiting chats without team
+            query = query.filter(
+                or_(
+                    Chat.assigned_user_id == current_user.id,
+                    and_(
+                        Chat.status == ChatStatus.WAITING,
+                        Chat.team_id.is_(None)
+                    )
+                )
+            )
         else:
             # Build visibility conditions based on status
             query = query.filter(
                 or_(
-                    # WAITING chats: visible to team members
+                    # WAITING chats: visible to team members OR chats without team (new chats)
                     and_(
                         Chat.status == ChatStatus.WAITING,
-                        Chat.team_id.in_(user_team_ids)
+                        or_(
+                            Chat.team_id.in_(user_team_ids),
+                            Chat.team_id.is_(None)  # New chats without team assigned
+                        )
                     ),
                     # IN_PROGRESS chats: visible only to the assigned user
                     and_(
@@ -729,13 +977,39 @@ async def close_chat(
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
     
+    # Get contact for sending rating message
+    contact = db.query(ChatContact).filter(ChatContact.id == chat.contact_id).first()
+    
+    # Get chat config for instance name
+    chat_config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
+    
+    # Get chatbot config for rating message
+    chatbot_config = db.query(ChatbotConfig).first()
+    
+    # Send rating request message before closing
+    if contact and chat_config and chatbot_config:
+        rating_msg = chatbot_config.rating_request_message or "Por favor, avalie nosso atendimento de 1 a 10:"
+        try:
+            await evolution_api.send_text(
+                instance_name=chat_config.instance_name,
+                number=contact.remote_jid.replace("@s.whatsapp.net", ""),
+                text=rating_msg
+            )
+            # Set state to RATING to capture the response
+            chat.chatbot_state = ChatbotState.RATING
+        except Exception as e:
+            logger.error(f"Error sending rating message: {e}")
+            # Continue with closing even if message fails
+            chat.chatbot_state = ChatbotState.FINISHED
+    else:
+        chat.chatbot_state = ChatbotState.FINISHED
+    
     chat.status = ChatStatus.CLOSED
     chat.classification = close_data.classification
     chat.rating = close_data.rating
     chat.closing_comments = close_data.closing_comments
     chat.closed_by_id = current_user.id
     chat.closed_at = datetime.utcnow()
-    chat.chatbot_state = ChatbotState.FINISHED
     
     db.commit()
     
@@ -957,7 +1231,18 @@ async def update_chatbot_config(
     
     for field, value in config_data.model_dump(exclude_unset=True).items():
         if field == "menu_options" and value is not None:
-            setattr(config, field, [opt.model_dump() for opt in value])
+            # menu_options items need to be serializable (no UUID objects)
+            processed_options = []
+            for opt in value:
+                if hasattr(opt, 'model_dump'):
+                    opt_dict = opt.model_dump()
+                else:
+                    opt_dict = dict(opt)
+                # Convert UUID to string for JSON serialization
+                if 'team_id' in opt_dict and opt_dict['team_id'] is not None:
+                    opt_dict['team_id'] = str(opt_dict['team_id'])
+                processed_options.append(opt_dict)
+            setattr(config, field, processed_options)
         else:
             setattr(config, field, value)
     

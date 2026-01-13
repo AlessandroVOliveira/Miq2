@@ -448,7 +448,7 @@ const ChatPage: React.FC = () => {
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: msg.from_me ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                                             <div
                                                 className={`${styles.messageBubble} ${msg.from_me ? styles.messageStaff : styles.messageClient}`}
-                                                style={{ position: 'relative' }}
+                                                style={{ position: 'relative', whiteSpace: 'pre-wrap' }}
                                             >
                                                 {msg.content}
                                                 {!msg.from_me && (

@@ -85,6 +85,7 @@ const ChatConfigPage: React.FC = () => {
                 rating_request_message: data.rating_request_message,
                 rating_thanks_message: data.rating_thanks_message,
                 offline_message: data.offline_message,
+                menu_options: data.menu_options || [],
             });
         } catch {
             // Ignore - will create default when saving
@@ -206,7 +207,15 @@ const ChatConfigPage: React.FC = () => {
     const handleSaveChatbot = async (values: any) => {
         setSavingChatbot(true);
         try {
-            await chatApi.updateChatbotConfig(values);
+            // Convert option numbers to strings
+            const payload = {
+                ...values,
+                menu_options: values.menu_options?.map((opt: any) => ({
+                    ...opt,
+                    option: String(opt.option),
+                })) || []
+            };
+            await chatApi.updateChatbotConfig(payload);
             message.success('Configuração do chatbot salva com sucesso!');
             fetchChatbotConfig();
         } catch (error: any) {
