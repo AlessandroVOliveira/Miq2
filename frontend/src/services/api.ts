@@ -165,6 +165,17 @@ export const usersApi = {
     delete: async (id: string): Promise<void> => {
         await api.delete(`/users/${id}`);
     },
+
+    // Profile methods
+    getMe: async (): Promise<User> => {
+        const response = await api.get('/users/me');
+        return response.data;
+    },
+
+    updateProfile: async (data: { name?: string; avatar_url?: string }): Promise<User> => {
+        const response = await api.put('/users/me/profile', data);
+        return response.data;
+    },
 };
 
 // Teams API
@@ -857,6 +868,7 @@ export interface Chat {
     classification?: string;
     rating?: number;
     closing_comments?: string;
+    unread_count?: number;
     created_at: string;
     updated_at: string;
     closed_at?: string;

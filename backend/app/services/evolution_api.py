@@ -361,6 +361,23 @@ class EvolutionAPIService:
         """Format number to JID."""
         cleaned = self._format_number(number)
         return f"{cleaned}@s.whatsapp.net"
+    
+    async def fetch_profile_picture(
+        self,
+        instance_name: str,
+        number: str
+    ) -> Optional[str]:
+        """Fetch profile picture URL for a WhatsApp number."""
+        try:
+            data = {"number": self._format_number(number)}
+            result = await self._request(
+                "POST", 
+                f"/chat/fetchProfilePictureUrl/{instance_name}", 
+                data
+            )
+            return result.get("profilePictureUrl")
+        except EvolutionAPIError:
+            return None
 
 
 # Singleton instance

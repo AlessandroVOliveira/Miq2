@@ -318,7 +318,11 @@ const AppLayout: React.FC = () => {
                     <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
                         <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
                             {!isMobile && <span>{user?.name}</span>}
-                            <Avatar icon={<UserOutlined />} />
+                            <Avatar
+                                src={user?.avatar_url}
+                                icon={!user?.avatar_url ? <UserOutlined /> : undefined}
+                                style={{ backgroundColor: user?.avatar_url ? undefined : '#1064fe' }}
+                            />
                         </div>
                     </Dropdown>
                 </Header>

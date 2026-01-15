@@ -11,10 +11,11 @@ import {
     SearchOutlined, ReloadOutlined, CheckCircleOutlined, MessageOutlined,
     SmileOutlined, PhoneOutlined, ThunderboltOutlined, EditOutlined,
     HistoryOutlined, EnterOutlined, PaperClipOutlined, FileOutlined,
-    PlayCircleOutlined, SoundOutlined
+    PlayCircleOutlined, SoundOutlined, ArrowLeftOutlined
 } from '@ant-design/icons';
 import { chatApi, teamsApi, usersApi, Chat, ChatMessage, ChatContact, QuickReply } from '../../services/api';
 import type { Team, User as UserType } from '../../types';
+import { useAuth } from '../../contexts/AuthContext';
 import styles from './chat.module.css';
 
 const { Sider, Content } = Layout;
@@ -164,6 +165,45 @@ const MediaDocument: React.FC<{ messageId: string; mediaUrl?: string; filename?:
     );
 };
 
+// Format WhatsApp text (bold with *text*, italic with _text_)
+const formatWhatsAppText = (text: string): React.ReactNode => {
+    if (!text) return null;
+
+    // Split by lines first to preserve line breaks
+    const lines = text.split('\n');
+
+    return lines.map((line, lineIndex) => {
+        // Replace *text* with bold
+        const parts: React.ReactNode[] = [];
+        let lastIndex = 0;
+        const boldRegex = /\*([^*]+)\*/g;
+        let match;
+
+        while ((match = boldRegex.exec(line)) !== null) {
+            // Add text before the match
+            if (match.index > lastIndex) {
+                parts.push(line.substring(lastIndex, match.index));
+            }
+            // Add bold text
+            parts.push(<strong key={`bold-${lineIndex}-${match.index}`}>{match[1]}</strong>);
+            lastIndex = match.index + match[0].length;
+        }
+
+        // Add remaining text
+        if (lastIndex < line.length) {
+            parts.push(line.substring(lastIndex));
+        }
+
+        // Return line with line break between lines
+        return (
+            <span key={`line-${lineIndex}`}>
+                {parts.length > 0 ? parts : line}
+                {lineIndex < lines.length - 1 && <br />}
+            </span>
+        );
+    });
+};
+
 // Common emojis for quick access
 const COMMON_EMOJIS = ['😊', '👍', '❤️', '😂', '🙏', '👋', '✅', '⭐', '🎉', '💯', '😁', '🤝', '👏', '🔥', '💪', '😍', '🙌', '✨', '💡', '📞'];
 
@@ -181,6 +221,10 @@ const statusLabels: Record<string, string> = {
 };
 
 const ChatPage: React.FC = () => {
+    // Auth
+    const { user } = useAuth();
+    const currentUserAvatar = user?.avatar_url;
+
     // State
     const [conversations, setConversations] = useState<Chat[]>([]);
     const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -546,12 +590,22 @@ const ChatPage: React.FC = () => {
                                 >
                                     <div style={{ display: 'flex', gap: 12 }}>
                                         <Badge dot color={statusColors[chat.status]} offset={[-4, 38]}>
-                                            <Avatar size={48} icon={<UserOutlined />} style={{ backgroundColor: '#e2e8f0', color: '#64748b' }} />
+                                            <Avatar
+                                                size={48}
+                                                src={chat.contact?.profile_picture_url}
+                                                icon={!chat.contact?.profile_picture_url ? <UserOutlined /> : undefined}
+                                                style={{ backgroundColor: '#e2e8f0', color: '#64748b' }}
+                                            />
                                         </Badge>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                                 <Text strong style={{ fontSize: 14 }}>{getContactName(chat.contact)}</Text>
-                                                <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(chat.updated_at)}</Text>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    {(chat.unread_count ?? 0) > 0 && (
+                                                        <Badge count={chat.unread_count} size="small" style={{ backgroundColor: '#1064fe' }} />
+                                                    )}
+                                                    <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(chat.updated_at)}</Text>
+                                                </div>
                                             </div>
                                             <Text type="secondary" ellipsis style={{ fontSize: 12, display: 'block' }}>
                                                 Ticket #{chat.protocol}
@@ -576,6 +630,15 @@ const ChatPage: React.FC = () => {
                     <>
                         <div className={styles.chatHeader}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <Button
+                                    type="text"
+                                    icon={<ArrowLeftOutlined />}
+                                    onClick={() => {
+                                        setSelectedChat(null);
+                                        setMessages([]);
+                                    }}
+                                    style={{ marginRight: 4 }}
+                                />
                                 <Title level={4} style={{ margin: 0, fontSize: 18 }}>{getContactName(selectedChat.contact)}</Title>
                                 <Button
                                     type="text"
@@ -634,7 +697,14 @@ const ChatPage: React.FC = () => {
                                             gap: 12
                                         }}
                                     >
-                                        {!msg.from_me && <Avatar size={32} icon={<UserOutlined />} />}
+                                        {!msg.from_me && (
+                                            <Avatar
+                                                size={32}
+                                                src={selectedChat.contact?.profile_picture_url}
+                                                icon={!selectedChat.contact?.profile_picture_url ? <UserOutlined /> : undefined}
+                                                style={{ backgroundColor: selectedChat.contact?.profile_picture_url ? undefined : '#e2e8f0' }}
+                                            />
+                                        )}
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: msg.from_me ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                                             <div
                                                 className={`${styles.messageBubble} ${msg.from_me ? styles.messageStaff : styles.messageClient}`}
@@ -680,7 +750,7 @@ const ChatPage: React.FC = () => {
                                                     />
                                                 )}
                                                 {/* Text content (or caption for media) */}
-                                                {msg.content && <span>{msg.content}</span>}
+                                                {msg.content && <span>{formatWhatsAppText(msg.content)}</span>}
                                                 {/* Reply button */}
                                                 {!msg.from_me && (
                                                     <Tooltip title="Responder">
@@ -698,7 +768,14 @@ const ChatPage: React.FC = () => {
                                                 {msg.from_me ? 'Você' : getContactName(selectedChat.contact)} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </Text>
                                         </div>
-                                        {msg.from_me && <Avatar size={32} src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqdPZPXzhrQSxnSLRNUxsZDfjnLb1UL-2GPHbNYFpaYe0nfr2WDMFKAtu34RINierXsilyKHrg25G8guK45DJa_DA4aKe84hLcArNTaj_Gyg45MfwSjbwn0MnbC9mOBbxufpQGHgOGvRMQHzdffvYCLGbHIt5ww9xgLR4PWYLfIJkZ2CQEP1S0_19ji2lwsEZAX6TfVFQX27dNtlQ82O99pkFT9yHZXwajtMIIrfkREdCifZ0EBZDaleb1R1ta-f6UD4asnXuG6N4j" />}
+                                        {msg.from_me && (
+                                            <Avatar
+                                                size={32}
+                                                src={currentUserAvatar}
+                                                icon={!currentUserAvatar ? <UserOutlined /> : undefined}
+                                                style={{ backgroundColor: currentUserAvatar ? undefined : '#1064fe' }}
+                                            />
+                                        )}
                                     </div>
                                 ))}
                             <div ref={messagesEndRef} />

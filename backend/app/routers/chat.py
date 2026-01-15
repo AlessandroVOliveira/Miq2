@@ -412,6 +412,12 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
             push_name=data.get("pushName"),
             phone_number=evolution_api.parse_jid_to_number(remote_jid)
         )
+        # Fetch profile picture
+        config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
+        if config:
+            profile_pic = await evolution_api.fetch_profile_picture(config.instance_name, remote_jid)
+            if profile_pic:
+                contact.profile_picture_url = profile_pic
         db.add(contact)
         db.flush()
         logger.info(f"Contact created with ID: {contact.id}")
@@ -420,6 +426,13 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
         contact.last_contact_at = datetime.utcnow()
         if data.get("pushName"):
             contact.push_name = data.get("pushName")
+        # Update profile picture if not set
+        if not contact.profile_picture_url:
+            config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
+            if config:
+                profile_pic = await evolution_api.fetch_profile_picture(config.instance_name, remote_jid)
+                if profile_pic:
+                    contact.profile_picture_url = profile_pic
     
     # Get or create chat
     if not from_me:
@@ -522,6 +535,10 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
     
     # Process chatbot if it's a received message and chatbot is active
     if not from_me:
+        # Increment unread count for client messages
+        chat.unread_count = (chat.unread_count or 0) + 1
+        db.commit()
+        
         await _process_chatbot(db, instance, chat, content, remote_jid)
 
 
@@ -900,6 +917,11 @@ async def get_chat_messages(
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
     
+    # Reset unread count when messages are viewed
+    if chat.unread_count and chat.unread_count > 0:
+        chat.unread_count = 0
+        db.commit()
+    
     query = db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id)
     
     if before_id:
@@ -1005,10 +1027,13 @@ async def send_message(
     try:
         logger.info(f"Sending message to {contact_number} via instance {config.instance_name}")
         
+        # Format message with attendant name in bold
+        formatted_text = f"*{current_user.name}*\n{message.text}"
+        
         result = await evolution_api.send_text(
             instance_name=config.instance_name,
             number=contact_number,
-            text=message.text
+            text=formatted_text
         )
         
         # Update chat status if it was waiting
@@ -1090,12 +1115,15 @@ async def send_media(
         logger.info(f"Sending {media_type} ({mimetype}) to {contact_number} via instance {config.instance_name}")
         logger.info(f"File: {file.filename}, size: {len(file_content)} bytes")
         
+        # Format caption with attendant name in bold
+        formatted_caption = f"*{current_user.name}*\n{caption}" if caption else f"*{current_user.name}*"
+        
         result = await evolution_api.send_media(
             instance_name=config.instance_name,
             number=contact_number,
             media_type=media_type,
             media_base64=file_base64,  # Send pure base64
-            caption=caption,
+            caption=formatted_caption,
             filename=file.filename,
             mimetype=mimetype
         )

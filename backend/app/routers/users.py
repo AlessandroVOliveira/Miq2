@@ -16,6 +16,45 @@ from app.middleware.auth import get_current_active_user, require_permission
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+# ==================== Profile Endpoints (Current User) ====================
+
+from pydantic import BaseModel
+
+class ProfileUpdate(BaseModel):
+    """Schema for updating user profile."""
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_my_profile(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get current user's profile."""
+    return current_user
+
+
+@router.put("/me/profile", response_model=UserResponse)
+async def update_my_profile(
+    profile_data: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update current user's profile (name and avatar)."""
+    if profile_data.name is not None:
+        current_user.name = profile_data.name
+    
+    if profile_data.avatar_url is not None:
+        current_user.avatar_url = profile_data.avatar_url
+    
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+# ==================== Admin Endpoints ====================
+
+
 @router.get("", response_model=UserListResponse)
 async def list_users(
     page: int = Query(1, ge=1),

@@ -106,6 +106,9 @@ class Chat(Base):
     closed_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     closed_at = Column(DateTime, nullable=True)
     
+    # Contagem de não lidas
+    unread_count = Column(Integer, default=0)
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

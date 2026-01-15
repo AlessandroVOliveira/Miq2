@@ -1,7 +1,7 @@
 """User model and related association tables."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Table
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Table, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -36,6 +36,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255), nullable=False)
+    avatar_url = Column(Text, nullable=True)  # Base64 ou URL da foto de perfil
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

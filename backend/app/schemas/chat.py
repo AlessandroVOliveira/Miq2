@@ -94,6 +94,7 @@ class ChatContactResponse(ChatContactBase):
     """Schema for chat contact response."""
     id: UUID
     display_name: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     first_contact_at: datetime
     last_contact_at: datetime
 
@@ -147,6 +148,7 @@ class ChatResponse(BaseModel):
     classification: Optional[str] = None
     rating: Optional[int] = None
     closing_comments: Optional[str] = None
+    unread_count: int = 0
     created_at: datetime
     updated_at: datetime
     closed_at: Optional[datetime] = None
