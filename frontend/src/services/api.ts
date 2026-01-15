@@ -966,8 +966,23 @@ export const chatApi = {
         return response.data;
     },
 
+    sendMedia: async (chatId: string, file: File, caption?: string): Promise<{ status: string; message_id: string }> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (caption) formData.append('caption', caption);
+        const response = await api.post(`/chat/conversations/${chatId}/send-media`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        return response.data;
+    },
+
     transferChat: async (chatId: string, targetTeamId: string, targetUserId?: string): Promise<{ message: string }> => {
         const response = await api.post(`/chat/conversations/${chatId}/transfer`, { target_team_id: targetTeamId, target_user_id: targetUserId });
+        return response.data;
+    },
+
+    getMessageMedia: async (messageId: string): Promise<{ base64: string; error?: string }> => {
+        const response = await api.get(`/chat/messages/${messageId}/media`);
         return response.data;
     },
 

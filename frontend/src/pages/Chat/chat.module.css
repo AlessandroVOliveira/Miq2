@@ -1,12 +1,17 @@
 .layout {
     height: calc(100vh - 64px);
     background: #f0f2f5;
+    overflow: hidden;
 }
 
 .sidebar {
     background: rgba(255, 255, 255, 0.8) !important;
     backdrop-filter: blur(10px);
     border-right: 1px solid #e2e8f0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .sidebarHeader {
@@ -80,6 +85,7 @@
 
 .messageBubble {
     max-width: 60%;
+    min-width: fit-content;
     padding: 16px;
     border-radius: 16px;
     font-size: 15px;

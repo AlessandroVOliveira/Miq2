@@ -323,11 +323,13 @@ const AppLayout: React.FC = () => {
                     </Dropdown>
                 </Header>
                 <Content style={{
-                    margin: isMobile ? '12px' : '24px',
-                    padding: isMobile ? 12 : 24,
-                    background: colorBgContainer,
-                    borderRadius: borderRadiusLG,
+                    margin: location.pathname === '/chat' ? 0 : (isMobile ? '12px' : '24px'),
+                    padding: location.pathname === '/chat' ? 0 : (isMobile ? 12 : 24),
+                    background: location.pathname === '/chat' ? 'transparent' : colorBgContainer,
+                    borderRadius: location.pathname === '/chat' ? 0 : borderRadiusLG,
                     minHeight: 280,
+                    height: location.pathname === '/chat' ? 'calc(100vh - 80px)' : 'auto',
+                    overflow: location.pathname === '/chat' ? 'hidden' : 'visible',
                 }}>
                     <Outlet />
                 </Content>

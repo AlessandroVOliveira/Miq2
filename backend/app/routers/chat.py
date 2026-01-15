@@ -4,7 +4,7 @@ from uuid import UUID
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -471,22 +471,38 @@ async def _handle_message_upsert(db: Session, instance: str, data: dict):
         content = message.get("extendedTextMessage", {}).get("text")
     elif "imageMessage" in message:
         msg_type = "image"
-        content = message.get("imageMessage", {}).get("caption")
-        media_url = message.get("imageMessage", {}).get("url")
+        img_msg = message.get("imageMessage", {})
+        content = img_msg.get("caption")
+        media_url = img_msg.get("url")
+        # Check for base64 in message (some Evolution API configs send it)
+        if img_msg.get("base64"):
+            media_url = f"data:{img_msg.get('mimetype', 'image/jpeg')};base64,{img_msg.get('base64')}"
     elif "videoMessage" in message:
         msg_type = "video"
-        content = message.get("videoMessage", {}).get("caption")
-        media_url = message.get("videoMessage", {}).get("url")
+        vid_msg = message.get("videoMessage", {})
+        content = vid_msg.get("caption")
+        media_url = vid_msg.get("url")
+        if vid_msg.get("base64"):
+            media_url = f"data:{vid_msg.get('mimetype', 'video/mp4')};base64,{vid_msg.get('base64')}"
     elif "audioMessage" in message:
         msg_type = "audio"
-        media_url = message.get("audioMessage", {}).get("url")
+        aud_msg = message.get("audioMessage", {})
+        media_url = aud_msg.get("url")
+        if aud_msg.get("base64"):
+            media_url = f"data:{aud_msg.get('mimetype', 'audio/ogg')};base64,{aud_msg.get('base64')}"
     elif "documentMessage" in message:
         msg_type = "document"
-        content = message.get("documentMessage", {}).get("fileName")
-        media_url = message.get("documentMessage", {}).get("url")
+        doc_msg = message.get("documentMessage", {})
+        content = doc_msg.get("fileName")
+        media_url = doc_msg.get("url")
+        if doc_msg.get("base64"):
+            media_url = f"data:{doc_msg.get('mimetype', 'application/octet-stream')};base64,{doc_msg.get('base64')}"
     elif "stickerMessage" in message:
         msg_type = "sticker"
-        media_url = message.get("stickerMessage", {}).get("url")
+        stk_msg = message.get("stickerMessage", {})
+        media_url = stk_msg.get("url")
+        if stk_msg.get("base64"):
+            media_url = f"data:{stk_msg.get('mimetype', 'image/webp')};base64,{stk_msg.get('base64')}"
     
     # Create message record
     chat_message = ChatMessage(
@@ -546,14 +562,35 @@ async def _handle_send_message(db: Session, instance: str, data: dict):
     if existing:
         return
     
-    # Determine message content
+    # Determine message content and type
     content = None
     msg_type = "text"
+    media_url = None
+    media_filename = None
     
     if "conversation" in message:
         content = message.get("conversation")
     elif "extendedTextMessage" in message:
         content = message.get("extendedTextMessage", {}).get("text")
+    elif "imageMessage" in message:
+        msg_type = "image"
+        content = message.get("imageMessage", {}).get("caption")
+        media_url = message.get("imageMessage", {}).get("url")
+    elif "videoMessage" in message:
+        msg_type = "video"
+        content = message.get("videoMessage", {}).get("caption")
+        media_url = message.get("videoMessage", {}).get("url")
+    elif "audioMessage" in message:
+        msg_type = "audio"
+        media_url = message.get("audioMessage", {}).get("url")
+    elif "documentMessage" in message:
+        msg_type = "document"
+        media_filename = message.get("documentMessage", {}).get("fileName")
+        content = media_filename
+        media_url = message.get("documentMessage", {}).get("url")
+    elif "stickerMessage" in message:
+        msg_type = "sticker"
+        media_url = message.get("stickerMessage", {}).get("url")
     
     # Create message record
     chat_message = ChatMessage(
@@ -563,6 +600,8 @@ async def _handle_send_message(db: Session, instance: str, data: dict):
         from_me=True,
         message_type=msg_type,
         content=content,
+        media_url=media_url,
+        media_filename=media_filename,
         status="sent",
         timestamp=datetime.utcnow()
     )
@@ -872,6 +911,57 @@ async def get_chat_messages(
     return list(reversed(messages))
 
 
+@router.get("/messages/{message_id}/media")
+async def get_message_media(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("chat", "read"))
+):
+    """Get media from a message in base64 format."""
+    from fastapi.responses import JSONResponse
+    
+    chat_message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    if not chat_message:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    
+    if chat_message.message_type == "text":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message has no media")
+    
+    # If we already have a base64 data URL, return it
+    if chat_message.media_url and chat_message.media_url.startswith("data:"):
+        return {"base64": chat_message.media_url}
+    
+    # Get config and try to fetch from Evolution API
+    config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
+    if not config:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chat not configured")
+    
+    try:
+        result = await evolution_api.get_base64_from_media(
+            instance_name=config.instance_name,
+            message_id=chat_message.message_id,
+            remote_jid=chat_message.remote_jid,
+            from_me=chat_message.from_me
+        )
+        
+        base64_data = result.get("base64")
+        mimetype = result.get("mimetype", "application/octet-stream")
+        
+        if base64_data:
+            # Update the message with the base64 data for future use
+            data_url = f"data:{mimetype};base64,{base64_data}"
+            chat_message.media_url = data_url
+            db.commit()
+            return {"base64": data_url}
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Could not retrieve media")
+            
+    except EvolutionAPIError as e:
+        logger.error(f"Error getting media: {e.message}")
+        # Return the original URL as fallback
+        return {"base64": chat_message.media_url, "error": str(e.message)}
+
+
 @router.post("/conversations/{chat_id}/send")
 async def send_message(
     chat_id: UUID,
@@ -938,6 +1028,94 @@ async def send_message(
             detail=f"Erro ao enviar mensagem: {e.message}"
         )
 
+
+@router.post("/conversations/{chat_id}/send-media")
+async def send_media(
+    chat_id: UUID,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("chat", "create"))
+):
+    """Send media message to chat."""
+    import base64
+    
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+    
+    # Validate contact exists
+    if not chat.contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chat não tem contato associado"
+        )
+    
+    # Get phone number
+    contact_number = None
+    if chat.contact.remote_jid:
+        contact_number = chat.contact.remote_jid.split('@')[0]
+    elif chat.contact.phone_number:
+        contact_number = chat.contact.phone_number
+    
+    if not contact_number:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Contato não tem número de telefone"
+        )
+    
+    config = db.query(ChatConfig).filter(ChatConfig.is_active == True).first()
+    if not config or config.connection_status != ConnectionStatus.CONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp não está conectado"
+        )
+    
+    try:
+        # Read file content and convert to base64
+        file_content = await file.read()
+        file_base64 = base64.b64encode(file_content).decode('utf-8')
+        
+        # Determine media type from mimetype
+        mimetype = file.content_type or 'application/octet-stream'
+        if mimetype.startswith('image/'):
+            media_type = 'image'
+        elif mimetype.startswith('video/'):
+            media_type = 'video'
+        elif mimetype.startswith('audio/'):
+            media_type = 'audio'
+        else:
+            media_type = 'document'
+        
+        logger.info(f"Sending {media_type} ({mimetype}) to {contact_number} via instance {config.instance_name}")
+        logger.info(f"File: {file.filename}, size: {len(file_content)} bytes")
+        
+        result = await evolution_api.send_media(
+            instance_name=config.instance_name,
+            number=contact_number,
+            media_type=media_type,
+            media_base64=file_base64,  # Send pure base64
+            caption=caption,
+            filename=file.filename,
+            mimetype=mimetype
+        )
+        
+        # Update chat status if it was waiting
+        if chat.status == ChatStatus.WAITING:
+            chat.status = ChatStatus.IN_PROGRESS
+            chat.assigned_user_id = current_user.id
+            chat.first_response_at = datetime.utcnow()
+            chat.chatbot_state = ChatbotState.WITH_AGENT
+            db.commit()
+        
+        return {"status": "sent", "message_id": result.get("key", {}).get("id")}
+        
+    except EvolutionAPIError as e:
+        logger.error(f"Evolution API error sending media: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Erro ao enviar mídia: {e.message}"
+        )
 
 
 @router.post("/conversations/{chat_id}/transfer")

@@ -10,7 +10,8 @@ import {
     SendOutlined, UserOutlined, TeamOutlined, SwapOutlined, CloseCircleOutlined,
     SearchOutlined, ReloadOutlined, CheckCircleOutlined, MessageOutlined,
     SmileOutlined, PhoneOutlined, ThunderboltOutlined, EditOutlined,
-    HistoryOutlined, EnterOutlined
+    HistoryOutlined, EnterOutlined, PaperClipOutlined, FileOutlined,
+    PlayCircleOutlined, SoundOutlined
 } from '@ant-design/icons';
 import { chatApi, teamsApi, usersApi, Chat, ChatMessage, ChatContact, QuickReply } from '../../services/api';
 import type { Team, User as UserType } from '../../types';
@@ -19,6 +20,149 @@ import styles from './chat.module.css';
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+
+// Component to lazy-load media from API
+const MediaImage: React.FC<{ messageId: string; mediaUrl?: string; alt: string; style?: React.CSSProperties; onImageClick?: (src: string) => void }> = ({ messageId, mediaUrl, alt, style, onImageClick }) => {
+    const [src, setSrc] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        if (mediaUrl?.startsWith('data:')) {
+            setSrc(mediaUrl);
+            setLoading(false);
+        } else {
+            setLoading(true);
+            chatApi.getMessageMedia(messageId)
+                .then(response => {
+                    setSrc(response.base64);
+                    setLoading(false);
+                })
+                .catch(() => {
+                    setError(true);
+                    setLoading(false);
+                });
+        }
+    }, [messageId, mediaUrl]);
+
+    if (loading) {
+        return <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0', borderRadius: 8, minHeight: 100 }}><Spin /></div>;
+    }
+
+    if (error || !src) {
+        return <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0', borderRadius: 8, padding: 16, color: '#999' }}>
+            <FileOutlined style={{ fontSize: 24, marginRight: 8 }} /> Mídia indisponível
+        </div>;
+    }
+
+    return <img src={src} alt={alt} style={style} onClick={() => onImageClick?.(src)} />;
+};
+
+// Component to lazy-load audio from API
+const MediaAudio: React.FC<{ messageId: string; mediaUrl?: string; style?: React.CSSProperties }> = ({ messageId, mediaUrl, style }) => {
+    const [src, setSrc] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+
+    // Clean data URL format for browser compatibility
+    const cleanDataUrl = (url: string): string => {
+        // Fix malformed data URLs like "data:audio/ogg; codecs=opus;base64," 
+        // to proper format "data:audio/ogg;base64,"
+        return url.replace(/;\s*codecs=[^;]+;/i, ';');
+    };
+
+    useEffect(() => {
+        if (mediaUrl?.startsWith('data:')) {
+            setSrc(cleanDataUrl(mediaUrl));
+            setLoading(false);
+        } else {
+            setLoading(true);
+            chatApi.getMessageMedia(messageId)
+                .then(response => {
+                    const cleaned = cleanDataUrl(response.base64);
+                    setSrc(cleaned);
+                    setLoading(false);
+                })
+                .catch(() => {
+                    setError(true);
+                    setLoading(false);
+                });
+        }
+    }, [messageId, mediaUrl]);
+
+    if (loading) {
+        return <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0', borderRadius: 8, padding: 12 }}><Spin size="small" /> <span style={{ marginLeft: 8 }}>Carregando áudio...</span></div>;
+    }
+
+    if (error || !src) {
+        return <div style={{ ...style, display: 'flex', alignItems: 'center', background: '#f0f0f0', borderRadius: 8, padding: 12, color: '#999' }}>
+            <SoundOutlined style={{ fontSize: 20, marginRight: 8 }} /> Áudio indisponível
+        </div>;
+    }
+
+    return <audio src={src} controls style={{ width: '100%', minWidth: 280, ...style }} />
+};
+
+// Component to lazy-load document from API
+const MediaDocument: React.FC<{ messageId: string; mediaUrl?: string; filename?: string; style?: React.CSSProperties }> = ({ messageId, mediaUrl, filename, style }) => {
+    const [src, setSrc] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [downloading, setDownloading] = useState(false);
+
+    const handleDownload = async () => {
+        if (src) {
+            // Already have the data, trigger download
+            const link = document.createElement('a');
+            link.href = src;
+            link.download = filename || 'documento';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+        }
+
+        // Need to fetch first
+        setDownloading(true);
+        try {
+            if (mediaUrl?.startsWith('data:')) {
+                setSrc(mediaUrl);
+                const link = document.createElement('a');
+                link.href = mediaUrl;
+                link.download = filename || 'documento';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                const response = await chatApi.getMessageMedia(messageId);
+                setSrc(response.base64);
+                const link = document.createElement('a');
+                link.href = response.base64;
+                link.download = filename || 'documento';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        } catch {
+            message.error('Erro ao baixar documento');
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...style }}>
+            <FileOutlined style={{ fontSize: 24 }} />
+            <Button
+                type="link"
+                onClick={handleDownload}
+                loading={downloading || loading}
+                style={{ padding: 0, color: 'inherit' }}
+            >
+                {filename || 'Documento'}
+            </Button>
+        </div>
+    );
+};
 
 // Common emojis for quick access
 const COMMON_EMOJIS = ['😊', '👍', '❤️', '😂', '🙏', '👋', '✅', '⭐', '🎉', '💯', '😁', '🤝', '👏', '🔥', '💪', '😍', '🙌', '✨', '💡', '📞'];
@@ -222,6 +366,34 @@ const ChatPage: React.FC = () => {
         }
     };
 
+    const handleSendMedia = async (file: File) => {
+        if (!selectedChat) return;
+
+        setSending(true);
+        try {
+            await chatApi.sendMedia(selectedChat.id, file);
+            fetchMessages(selectedChat.id);
+            message.success('Mídia enviada!');
+        } catch (error: any) {
+            message.error(error.response?.data?.detail || 'Erro ao enviar mídia');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleFileUpload = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx';
+        input.onchange = (e) => {
+            const target = e.target as HTMLInputElement;
+            if (target.files && target.files[0]) {
+                handleSendMedia(target.files[0]);
+            }
+        };
+        input.click();
+    };
+
     const handleTransfer = async (teamId: string, userId?: string) => {
         if (!selectedChat) return;
         try {
@@ -272,6 +444,24 @@ const ChatPage: React.FC = () => {
             message.error(error.response?.data?.detail || 'Erro ao reabrir');
         }
     };
+
+    // Polling: atualiza lista de conversas a cada 5 segundos
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetchConversations();
+            fetchAllConversations();
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [fetchConversations, fetchAllConversations]);
+
+    // Polling: atualiza mensagens do chat ativo a cada 3 segundos
+    useEffect(() => {
+        if (!selectedChat) return;
+        const interval = setInterval(() => {
+            fetchMessages(selectedChat.id);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [selectedChat, fetchMessages]);
 
     const formatTime = (dateStr: string) => {
         const date = new Date(dateStr);
@@ -376,7 +566,7 @@ const ChatPage: React.FC = () => {
             </Sider>
 
             {/* Main Chat Area */}
-            <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff' }}>
+            <Content style={{ display: 'flex', flexDirection: 'column', background: '#fff', height: '100%', overflow: 'hidden' }}>
                 {!selectedChat ? (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#94a3b8' }}>
                         <MessageOutlined style={{ fontSize: 64, marginBottom: 16, opacity: 0.5 }} />
@@ -450,7 +640,48 @@ const ChatPage: React.FC = () => {
                                                 className={`${styles.messageBubble} ${msg.from_me ? styles.messageStaff : styles.messageClient}`}
                                                 style={{ position: 'relative', whiteSpace: 'pre-wrap' }}
                                             >
-                                                {msg.content}
+                                                {/* Render media based on message type */}
+                                                {msg.message_type === 'image' && (
+                                                    <MediaImage
+                                                        messageId={msg.id}
+                                                        mediaUrl={msg.media_url}
+                                                        alt="Imagem"
+                                                        style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 8, marginBottom: msg.content ? 8 : 0, cursor: 'pointer' }}
+                                                        onImageClick={(src) => setMediaPreview({ url: src, type: 'image' })}
+                                                    />
+                                                )}
+                                                {msg.message_type === 'video' && msg.media_url && (
+                                                    <video
+                                                        src={msg.media_url}
+                                                        controls
+                                                        style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 8, marginBottom: msg.content ? 8 : 0 }}
+                                                    />
+                                                )}
+                                                {msg.message_type === 'audio' && (
+                                                    <MediaAudio
+                                                        messageId={msg.id}
+                                                        mediaUrl={msg.media_url}
+                                                        style={{ marginBottom: msg.content ? 8 : 0 }}
+                                                    />
+                                                )}
+                                                {msg.message_type === 'document' && (
+                                                    <MediaDocument
+                                                        messageId={msg.id}
+                                                        mediaUrl={msg.media_url}
+                                                        filename={msg.media_filename}
+                                                        style={{ marginBottom: msg.content ? 8 : 0 }}
+                                                    />
+                                                )}
+                                                {msg.message_type === 'sticker' && msg.media_url && (
+                                                    <img
+                                                        src={msg.media_url}
+                                                        alt="Sticker"
+                                                        style={{ maxWidth: 150, maxHeight: 150 }}
+                                                    />
+                                                )}
+                                                {/* Text content (or caption for media) */}
+                                                {msg.content && <span>{msg.content}</span>}
+                                                {/* Reply button */}
                                                 {!msg.from_me && (
                                                     <Tooltip title="Responder">
                                                         <Button
@@ -458,7 +689,7 @@ const ChatPage: React.FC = () => {
                                                             size="small"
                                                             icon={<EnterOutlined />}
                                                             onClick={() => setQuotedMessage(msg)}
-                                                            style={{ position: 'absolute', right: -30, top: 0, opacity: 0.6 }}
+                                                            style={{ position: 'absolute', right: -32, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}
                                                         />
                                                     </Tooltip>
                                                 )}
@@ -528,6 +759,14 @@ const ChatPage: React.FC = () => {
                                     >
                                         <Button type="text" shape="circle" icon={<SmileOutlined style={{ fontSize: 20, color: '#94a3b8' }} />} />
                                     </Popover>
+                                    <Tooltip title="Anexar arquivo">
+                                        <Button
+                                            type="text"
+                                            shape="circle"
+                                            icon={<PaperClipOutlined style={{ fontSize: 20, color: '#94a3b8' }} />}
+                                            onClick={handleFileUpload}
+                                        />
+                                    </Tooltip>
                                     <Dropdown
                                         trigger={['click']}
                                         menu={{
@@ -664,6 +903,24 @@ const ChatPage: React.FC = () => {
                         onChange={e => setEditContactName(e.target.value)}
                     />
                 </Space>
+            </Modal>
+
+            {/* Image Preview Modal */}
+            <Modal
+                open={!!mediaPreview}
+                footer={null}
+                onCancel={() => setMediaPreview(null)}
+                width="80%"
+                centered
+                styles={{ body: { padding: 0, textAlign: 'center', background: '#000' } }}
+            >
+                {mediaPreview && (
+                    <img
+                        src={mediaPreview.url}
+                        alt="Preview"
+                        style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }}
+                    />
+                )}
             </Modal>
         </Layout>
     );

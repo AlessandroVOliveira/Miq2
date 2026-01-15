@@ -192,15 +192,17 @@ class EvolutionAPIService:
         instance_name: str,
         number: str,
         media_type: str,
-        media_url: str,
+        media_base64: str,
         caption: str = None,
-        filename: str = None
+        filename: str = None,
+        mimetype: str = None
     ) -> Dict[str, Any]:
         """Send media message (image, video, document)."""
         data = {
             "number": self._format_number(number),
             "mediatype": media_type,
-            "media": media_url
+            "media": media_base64,  # Pure base64 string OR data URL
+            "mimetype": mimetype or "application/octet-stream"
         }
         if caption:
             data["caption"] = caption
@@ -221,6 +223,26 @@ class EvolutionAPIService:
             "audio": audio_url
         }
         return await self._request("POST", f"/message/sendWhatsAppAudio/{instance_name}", data)
+    
+    async def get_base64_from_media(
+        self,
+        instance_name: str,
+        message_id: str,
+        remote_jid: str,
+        from_me: bool = False
+    ) -> Dict[str, Any]:
+        """Get base64 encoded media from a message."""
+        data = {
+            "message": {
+                "key": {
+                    "remoteJid": remote_jid,
+                    "fromMe": from_me,
+                    "id": message_id
+                }
+            },
+            "convertToMp4": False
+        }
+        return await self._request("POST", f"/chat/getBase64FromMediaMessage/{instance_name}", data)
     
     async def send_reaction(
         self,
